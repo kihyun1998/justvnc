@@ -1,10 +1,11 @@
 FROM ubuntu:24.04
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tigervnc-standalone-server tigervnc-tools \
-      x11-utils x11-xkb-utils xsel \
+      x11-utils x11-xkb-utils xsel x11-apps xdotool \
  && rm -rf /var/lib/apt/lists/*
 COPY start.sh /start.sh
 EXPOSE 5900
 # VNC_PASSWORD set: security type VncAuth with that password. Unset: security type None.
-# x11-utils (xev), x11-xkb-utils (xkbbell) and xsel let interop tests act on the X side.
+# x11-utils (xev), x11-xkb-utils (xkbbell), xsel, x11-apps (xlogo) and xdotool let interop
+# tests and fixture recordings act on the X side.
 CMD ["sh", "/start.sh"]

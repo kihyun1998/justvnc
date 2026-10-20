@@ -4,9 +4,9 @@ use justvnc_client::{
 
 const TIGERVNC_NONE: &[u8] = include_bytes!("fixtures/tigervnc-3.8-none.server.bin");
 
-/// SetEncodings as RFC 6143 7.5.2 lays it out: type 2, padding, two encodings, then
-/// DesktopSize (-223) and Raw (0). The session sends it right after ServerInit.
-const SET_ENCODINGS: &[u8] = &[2, 0, 0, 2, 0xff, 0xff, 0xff, 0x21, 0, 0, 0, 0];
+/// SetEncodings as RFC 6143 7.5.2 lays it out: type 2, padding, three encodings, then
+/// DesktopSize (-223), CopyRect (1) and Raw (0). The session sends it right after ServerInit.
+const SET_ENCODINGS: &[u8] = &[2, 0, 0, 3, 0xff, 0xff, 0xff, 0x21, 0, 0, 0, 1, 0, 0, 0, 0];
 
 /// Feeds `data`, expecting any error to come from the handshake.
 fn receive(session: &mut ClientSession, data: &[u8]) -> Result<(), HandshakeError> {

@@ -11,6 +11,8 @@ pub enum Framed {
         encoding: i32,
         data: Vec<u8>,
     },
+    /// Copy the pixels at (`src_x`, `src_y`), as big as `rect`, to `rect` (CopyRect).
+    Copy { rect: Rect, src_x: u16, src_y: u16 },
     /// The framebuffer is now `width` x `height` (DesktopSize pseudo-encoding).
     DesktopSize { width: u16, height: u16 },
     /// The last rectangle of a FramebufferUpdate has been framed.
@@ -38,6 +40,7 @@ const SERVER_CUT_TEXT: u8 = 3;
 const UPDATE_HEADER: usize = 4;
 const RECT_HEADER: usize = 12;
 const CUT_TEXT_HEADER: usize = 8;
+const COPY_RECT_DATA: usize = 4;
 
 impl ServerMessageReader {
     /// A reader for a `width` x `height` framebuffer whose pixels use `format`.
@@ -166,6 +169,27 @@ impl ServerMessageReader {
                     data: data.to_vec(),
                 };
                 Ok(Some((framed, RECT_HEADER + len)))
+            }
+            encoding::COPY_RECT => {
+                let Some(src) = buf.get(RECT_HEADER..RECT_HEADER + COPY_RECT_DATA) else {
+                    return Ok(None);
+                };
+                let source = Rect {
+                    x: u16::from_be_bytes([src[0], src[1]]),
+                    y: u16::from_be_bytes([src[2], src[3]]),
+                    ..rect
+                };
+                for r in [rect, source] {
+                    if !r.fits_in(self.width, self.height) {
+                        return Err(MessageError::RectangleOutOfBounds { rect: r });
+                    }
+                }
+                let framed = Framed::Copy {
+                    rect,
+                    src_x: source.x,
+                    src_y: source.y,
+                };
+                Ok(Some((framed, RECT_HEADER + COPY_RECT_DATA)))
             }
             _ => Err(MessageError::UnsupportedEncoding { encoding }),
         }

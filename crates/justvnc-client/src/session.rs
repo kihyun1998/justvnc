@@ -9,7 +9,7 @@ use justvnc_proto::{
 };
 
 /// Encodings the session asks for, most preferred first.
-const ENCODINGS: [i32; 2] = [encoding::DESKTOP_SIZE, encoding::RAW];
+const ENCODINGS: [i32; 3] = [encoding::DESKTOP_SIZE, encoding::COPY_RECT, encoding::RAW];
 
 /// How a client session behaves.
 #[derive(Debug, Clone)]
@@ -41,6 +41,9 @@ pub enum Event {
     Connected(ServerInit),
     /// Pixels for part of the framebuffer.
     Rectangle(Rectangle),
+    /// Copy the pixels at (`src_x`, `src_y`), as big as `rect`, to `rect`. The source is read as
+    /// it was before the copy, even where it overlaps `rect`.
+    Copy { rect: Rect, src_x: u16, src_y: u16 },
     /// The framebuffer is now `width` x `height`.
     DesktopResized { width: u16, height: u16 },
     /// Every rectangle of one FramebufferUpdate has been reported.
@@ -238,6 +241,7 @@ impl ClientSession {
                         .decode(rect, encoding, &data, format)
                         .map_err(Error::Decode)?,
                 }),
+                Framed::Copy { rect, src_x, src_y } => Event::Copy { rect, src_x, src_y },
                 Framed::DesktopSize { width, height } => Event::DesktopResized { width, height },
                 Framed::UpdateEnd => Event::UpdateComplete,
                 Framed::Bell => Event::Bell,

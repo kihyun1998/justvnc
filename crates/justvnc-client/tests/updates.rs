@@ -309,7 +309,8 @@ fn asks_for_the_configured_pixel_format_before_the_encodings() {
     let (handshake, rest) = transmit.split_at(RETRO_CLIENT_HANDSHAKE_LEN);
     assert_eq!(handshake, &RETRO_CLIENT[..RETRO_CLIENT_HANDSHAKE_LEN]);
     assert_eq!(rest[..20], set_pixel_format);
-    assert_eq!(rest[20..], RETRO_CLIENT[RETRO_CLIENT_HANDSHAKE_LEN..][..12]);
+    // Then SetEncodings as the recording has it: 4 bytes of header and three encodings.
+    assert_eq!(rest[20..], RETRO_CLIENT[RETRO_CLIENT_HANDSHAKE_LEN..][..16]);
     assert_eq!(session.pixel_format(), Some(rgb565));
 }
 

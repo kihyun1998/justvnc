@@ -45,6 +45,7 @@ impl Framebuffer {
     pub fn apply(&mut self, event: &Event) {
         match event {
             Event::Rectangle(rectangle) => self.put(rectangle),
+            Event::Copy { rect, src_x, src_y } => self.copy(*rect, *src_x, *src_y),
             Event::DesktopResized { width, height } => self.resize(*width, *height),
             _ => {}
         }
@@ -66,6 +67,32 @@ impl Framebuffer {
             }
             let start = (y * usize::from(self.width) + x) * bpp;
             self.pixels[start..start + width * bpp].copy_from_slice(&source[..width * bpp]);
+        }
+    }
+
+    /// Copies the `rect`-sized area at (`src_x`, `src_y`) to `rect`, reading the source as it was
+    /// before the copy.
+    fn copy(&mut self, rect: crate::Rect, src_x: u16, src_y: u16) {
+        let fits = |x: u16, y: u16| {
+            u32::from(x) + u32::from(rect.width) <= u32::from(self.width)
+                && u32::from(y) + u32::from(rect.height) <= u32::from(self.height)
+        };
+        if !fits(rect.x, rect.y) || !fits(src_x, src_y) {
+            return;
+        }
+        let bpp = self.format.bytes_per_pixel();
+        let stride = usize::from(self.width) * bpp;
+        let row_len = usize::from(rect.width) * bpp;
+        let row = |y: u16, dy: u16, x: u16| usize::from(y + dy) * stride + usize::from(x) * bpp;
+        let rows: Box<dyn Iterator<Item = u16>> = if rect.y > src_y {
+            Box::new((0..rect.height).rev())
+        } else {
+            Box::new(0..rect.height)
+        };
+        for dy in rows {
+            let from = row(src_y, dy, src_x);
+            self.pixels
+                .copy_within(from..from + row_len, row(rect.y, dy, rect.x));
         }
     }
 

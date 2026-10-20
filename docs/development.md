@@ -55,4 +55,11 @@ podman build -t justvnc-x11vnc interop/x11vnc
 podman run -d --rm --name jv-x11 -e RFB_VERSION=3.3 -p 15910:5900 justvnc-x11vnc
 ```
 
+For updates, `interop/record_updates.py` takes a list of steps (`full`, `incremental`, `run:CMD`) and records each update the server sends:
+
+```sh
+python interop/record_updates.py 127.0.0.1 15930 <prefix> --exec "podman exec jv-rec" \
+  "run:(xlogo -geometry 40x40+8+8 &); sleep 1" full "run:xdotool search --class xlogo windowmove 50 30" incremental full
+```
+
 Name a fixture after the server that produced it, and note where it came from in the map note for that area.

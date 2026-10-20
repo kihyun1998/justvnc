@@ -5,7 +5,7 @@ Usage: python record_handshake.py HOST PORT OUT_PREFIX [--version 3.3|3.7|3.8] [
 The client side is scripted: it answers with --version (default 3.8), picks the first security
 type the server offers that it can do (None, or VNC authentication when --password is given),
 answers VNC authentication with pycryptodome's DES, and sends ClientInit with the shared flag
-set. With --update it then sends SetEncodings (DesktopSize, Raw) and a full FramebufferUpdateRequest
+set. With --update it then sends SetEncodings (DesktopSize, CopyRect, Raw) and a full FramebufferUpdateRequest
 and reads one FramebufferUpdate of Raw and DesktopSize rectangles. Server bytes go to
 OUT_PREFIX.server.bin and client bytes to OUT_PREFIX.client.bin. It stops at the end of ServerInit
 (or of the update) or when the server closes.
@@ -85,7 +85,7 @@ def main():
         if a.update:
             width, height = struct.unpack(">HH", header[:4])
             bytes_per_pixel = header[4] // 8
-            send(struct.pack(">BBHii", 2, 0, 2, -223, 0))
+            send(struct.pack(">BBHiii", 2, 0, 3, -223, 1, 0))
             send(struct.pack(">BBHHHH", 3, 0, 0, 0, width, height))
             _, _, rects = struct.unpack(">BBH", read(4))
             for _ in range(rects):
