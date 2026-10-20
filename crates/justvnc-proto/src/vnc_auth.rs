@@ -14,8 +14,9 @@ pub fn response(password: &[u8], challenge: &[u8; CHALLENGE_LEN]) -> [u8; CHALLE
     }
     let des = Des::new(&Array::from(key));
     let mut out = *challenge;
-    for half in out.chunks_exact_mut(8) {
-        let mut block = Array::try_from(&*half).expect("8-byte half");
+    let (halves, _) = out.as_chunks_mut::<8>();
+    for half in halves {
+        let mut block = Array::from(*half);
         des.encrypt_block(&mut block);
         half.copy_from_slice(&block);
     }
