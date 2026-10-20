@@ -1,0 +1,3 @@
+# A Proxy parses both directions and narrows the encodings it forwards
+
+After authentication a Proxy parses every message in both directions instead of copying bytes, so the host can filter clipboard (ServerCutText arrives interleaved with framebuffer updates) and input. A FramebufferUpdate carries no overall length, so finding the next message requires walking every rectangle's encoding; the Proxy therefore rewrites the Viewer's SetEncodings to drop any encoding it cannot parse. A transparent byte relay, as acwbroker does for SSH, was rejected because it leaves clipboard control to a Viewer-side option the user can switch off.
