@@ -10,7 +10,7 @@ Right after ServerInit, before the host can ask for anything: SetPixelFormat, wh
 
 - **Raw** is `width * height * bytes-per-pixel` bytes, rows top to bottom (RFC 6143 §7.7.1). Every client must accept it even when it did not ask for it.
 - **DesktopSize** (-223) is a rectangle with no data. Its x and y are ignored; width and height are the new size. The RFC asks clients to keep the top-left part of the old framebuffer, which `Framebuffer` does.
-- **Other server messages** (SetColourMapEntries 1, Bell 2, ServerCutText 3) can arrive between updates. Until they are handled (#5), framing stops with `UnsupportedMessage` instead of skipping them: their lengths differ, and skipping a byte count the reader does not know desynchronises everything after it.
+- **Other server messages** can arrive between updates. Bell and ServerCutText are framed and reported (see `input-and-clipboard.md`). SetColourMapEntries (1), and any other type, stops framing with `UnsupportedMessage` instead of being skipped: each message has its own length, and skipping a byte count the reader does not know desynchronises everything after it.
 - **Colour-mapped formats** are refused (`UnsupportedPixelFormat`), whether configured or the server's own. They need SetColourMapEntries, which is not handled.
 
 ## Untrusted sizes

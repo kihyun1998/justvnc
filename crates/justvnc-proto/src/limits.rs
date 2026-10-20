@@ -13,6 +13,8 @@ pub struct Limits {
     pub max_framebuffer_height: u32,
     /// Most rectangles accepted in one FramebufferUpdate.
     pub max_rectangles_per_update: u32,
+    /// Longest clipboard text accepted in ServerCutText, in bytes.
+    pub max_cut_text_length: u32,
 }
 
 impl Default for Limits {
@@ -23,6 +25,7 @@ impl Default for Limits {
             max_framebuffer_width: 8192,
             max_framebuffer_height: 8192,
             max_rectangles_per_update: 16384,
+            max_cut_text_length: 1024 * 1024,
         }
     }
 }

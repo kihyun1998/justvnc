@@ -2,7 +2,7 @@
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::{ClientConfig, ClientSession, Error, Event, PixelFormat, Rect, ServerInit};
+use crate::{ClientConfig, ClientSession, CutText, Error, Event, PixelFormat, Rect, ServerInit};
 
 const READ_BUFFER: usize = 64 * 1024;
 
@@ -58,7 +58,26 @@ where
         flush(&mut self.stream, &mut self.session).await
     }
 
-    /// Waits for the session's next event, reading from the server as needed.
+    /// Tells the server that `keysym` (an X11 keysym) was pressed or released.
+    pub async fn key_event(&mut self, down: bool, keysym: u32) -> Result<(), ConnectError> {
+        self.session.key_event(down, keysym);
+        flush(&mut self.stream, &mut self.session).await
+    }
+
+    /// Tells the server where the pointer is and which buttons are held.
+    pub async fn pointer_event(&mut self, buttons: u8, x: u16, y: u16) -> Result<(), ConnectError> {
+        self.session.pointer_event(buttons, x, y);
+        flush(&mut self.stream, &mut self.session).await
+    }
+
+    /// Gives the server new clipboard text.
+    pub async fn send_cut_text(&mut self, text: &CutText) -> Result<(), ConnectError> {
+        self.session.send_cut_text(text);
+        flush(&mut self.stream, &mut self.session).await
+    }
+
+    /// Waits for the session's next event, reading from the server as needed. Cancel-safe: a
+    /// cancelled call loses no bytes and no events.
     pub async fn next_event(&mut self) -> Result<Event, ConnectError> {
         next_event(&mut self.stream, &mut self.session, &mut self.buf).await
     }

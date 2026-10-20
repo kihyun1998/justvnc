@@ -6,8 +6,8 @@ mod session;
 pub use framebuffer::Framebuffer;
 pub use justvnc_decode::DecodeError;
 pub use justvnc_proto::{
-    DesktopName, HandshakeError, Limits, MessageError, Password, PixelFormat, ProtocolVersion,
-    Rect, ServerInit,
+    CutText, DesktopName, HandshakeError, Limits, MessageError, NotLatin1, Password, PixelFormat,
+    ProtocolVersion, Rect, ServerInit,
 };
 pub use session::{ClientConfig, ClientSession, Error, Event, Rectangle};
 

@@ -15,4 +15,10 @@ tokio = { version = "1.54.0", default-features = false, features = ["io-util"], 
 tokio = ["dep:tokio"]
 
 [dev-dependencies]
-tokio = { version = "1.54.0", features = ["macros", "rt", "net", "time"] }
+arboard = "3.7"
+minifb = "0.29"
+tokio = { version = "1.54.0", features = ["macros", "rt", "net", "time", "rt-multi-thread", "sync"] }
+
+[[example]]
+name = "viewer"
+required-features = ["tokio"]

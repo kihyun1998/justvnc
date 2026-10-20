@@ -1,6 +1,6 @@
 //! Framing of server-to-client messages: where each message and rectangle ends.
 
-use crate::{Limits, MessageError, PixelFormat, Rect, encoding};
+use crate::{CutText, Limits, MessageError, PixelFormat, Rect, encoding};
 
 /// One framed piece of the server's message stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,6 +15,10 @@ pub enum Framed {
     DesktopSize { width: u16, height: u16 },
     /// The last rectangle of a FramebufferUpdate has been framed.
     UpdateEnd,
+    /// Bell.
+    Bell,
+    /// ServerCutText.
+    CutText(CutText),
 }
 
 /// Frames the server's messages after ServerInit, one piece at a time.
@@ -27,8 +31,13 @@ pub struct ServerMessageReader {
     rectangles_left: Option<u16>,
 }
 
+const FRAMEBUFFER_UPDATE: u8 = 0;
+const BELL: u8 = 2;
+const SERVER_CUT_TEXT: u8 = 3;
+
 const UPDATE_HEADER: usize = 4;
 const RECT_HEADER: usize = 12;
+const CUT_TEXT_HEADER: usize = 8;
 
 impl ServerMessageReader {
     /// A reader for a `width` x `height` framebuffer whose pixels use `format`.
@@ -46,7 +55,7 @@ impl ServerMessageReader {
     /// used, or `None` when `buf` does not hold all of it yet.
     pub fn next(&mut self, buf: &[u8]) -> Result<Option<(Framed, usize)>, MessageError> {
         match self.rectangles_left {
-            None => self.read_update_header(buf),
+            None => self.read_message(buf),
             Some(0) => {
                 self.rectangles_left = None;
                 Ok(Some((Framed::UpdateEnd, 0)))
@@ -61,13 +70,42 @@ impl ServerMessageReader {
         }
     }
 
-    fn read_update_header(&mut self, buf: &[u8]) -> Result<Option<(Framed, usize)>, MessageError> {
+    fn read_message(&mut self, buf: &[u8]) -> Result<Option<(Framed, usize)>, MessageError> {
         let Some(&message_type) = buf.first() else {
             return Ok(None);
         };
-        if message_type != 0 {
-            return Err(MessageError::UnsupportedMessage { message_type });
+        match message_type {
+            FRAMEBUFFER_UPDATE => self.read_update_header(buf),
+            BELL => Ok(Some((Framed::Bell, 1))),
+            SERVER_CUT_TEXT => self.read_cut_text(buf),
+            _ => Err(MessageError::UnsupportedMessage { message_type }),
         }
+    }
+
+    fn read_cut_text(&self, buf: &[u8]) -> Result<Option<(Framed, usize)>, MessageError> {
+        let Some(header) = buf.first_chunk::<CUT_TEXT_HEADER>() else {
+            return Ok(None);
+        };
+        let length = u32::from_be_bytes([header[4], header[5], header[6], header[7]]);
+        let max = self.limits.max_cut_text_length;
+        if length > max {
+            return Err(MessageError::LimitExceeded {
+                field: "cut-text-length",
+                length,
+                max,
+            });
+        }
+        let end = CUT_TEXT_HEADER + length as usize;
+        let Some(text) = buf.get(CUT_TEXT_HEADER..end) else {
+            return Ok(None);
+        };
+        Ok(Some((
+            Framed::CutText(CutText::from_latin1(text.to_vec())),
+            end,
+        )))
+    }
+
+    fn read_update_header(&mut self, buf: &[u8]) -> Result<Option<(Framed, usize)>, MessageError> {
         let Some(header) = buf.first_chunk::<UPDATE_HEADER>() else {
             return Ok(None);
         };

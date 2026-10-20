@@ -266,12 +266,12 @@ fn rejects_a_desktop_size_larger_than_the_limit() {
 fn stops_at_a_server_message_it_does_not_handle_and_stays_stopped() {
     let mut session = connected(ClientConfig::default());
 
-    // Bell (message type 2), then a FramebufferUpdate with no rectangles.
-    let first = session.receive(&[2, 0, 0, 0, 0]);
+    // SetColourMapEntries (message type 1), then a FramebufferUpdate with no rectangles.
+    let first = session.receive(&[1, 0, 0, 0, 0, 0]);
     let later = session.receive(&[0, 0, 0, 0]);
 
     let expected = Err(Error::Message(MessageError::UnsupportedMessage {
-        message_type: 2,
+        message_type: 1,
     }));
     assert_eq!(first, expected);
     assert_eq!(later, expected);

@@ -4,8 +4,8 @@ use justvnc_decode::{DecodeError, Decoder};
 use justvnc_proto::client::ClientHandshake;
 use justvnc_proto::server_message::{Framed, ServerMessageReader};
 use justvnc_proto::{
-    HandshakeError, Limits, MessageError, Password, PixelFormat, Rect, ServerInit, client_message,
-    encoding,
+    CutText, HandshakeError, Limits, MessageError, Password, PixelFormat, Rect, ServerInit,
+    client_message, encoding,
 };
 
 /// Encodings the session asks for, most preferred first.
@@ -45,6 +45,10 @@ pub enum Event {
     DesktopResized { width: u16, height: u16 },
     /// Every rectangle of one FramebufferUpdate has been reported.
     UpdateComplete,
+    /// The server has new clipboard text (ServerCutText).
+    CutText(CutText),
+    /// The server rang its bell.
+    Bell,
 }
 
 /// Decoded pixels for `rect`, row by row from its top left, in the session's pixel format.
@@ -122,6 +126,25 @@ impl ClientSession {
                 incremental,
                 area,
             ));
+    }
+
+    /// Tells the server that `keysym` (an X11 keysym) was pressed or released.
+    pub fn key_event(&mut self, down: bool, keysym: u32) {
+        self.transmit
+            .extend_from_slice(&client_message::key_event(down, keysym));
+    }
+
+    /// Tells the server where the pointer is and which buttons are held: buttons 1 to 8 are
+    /// bits 0 to 7, and a wheel step is a press and release of button 4 (up) or 5 (down).
+    pub fn pointer_event(&mut self, buttons: u8, x: u16, y: u16) {
+        self.transmit
+            .extend_from_slice(&client_message::pointer_event(buttons, x, y));
+    }
+
+    /// Gives the server new clipboard text.
+    pub fn send_cut_text(&mut self, text: &CutText) {
+        self.transmit
+            .extend_from_slice(&client_message::client_cut_text(text));
     }
 
     /// The pixel format rectangles arrive in, once the handshake has completed.
@@ -217,6 +240,8 @@ impl ClientSession {
                 }),
                 Framed::DesktopSize { width, height } => Event::DesktopResized { width, height },
                 Framed::UpdateEnd => Event::UpdateComplete,
+                Framed::Bell => Event::Bell,
+                Framed::CutText(text) => Event::CutText(text),
             };
             self.events.push_back(event);
         }

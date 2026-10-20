@@ -2,6 +2,7 @@
 
 pub mod client;
 pub mod client_message;
+mod cut_text;
 pub mod encoding;
 mod error;
 mod limits;
@@ -13,6 +14,7 @@ pub mod server_message;
 mod version;
 pub mod vnc_auth;
 
+pub use cut_text::{CutText, NotLatin1};
 pub use error::{HandshakeError, MessageError};
 pub use limits::Limits;
 pub use password::Password;
