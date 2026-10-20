@@ -119,8 +119,10 @@ async fn run_connection(
                     Event::UpdateComplete => {
                         let pixels = framebuffer
                             .pixels()
-                            .chunks_exact(4)
-                            .map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .map(|p| u32::from_le_bytes(*p))
                             .collect();
                         let frame = Update::Frame {
                             width: usize::from(framebuffer.width()),
