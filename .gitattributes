@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Recorded protocol bytes must never be line-ending normalised
+*.bin binary
