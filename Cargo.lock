@@ -66,6 +66,7 @@ version = "0.0.0"
 name = "justvnc-client"
 version = "0.0.0"
 dependencies = [
+ "justvnc-decode",
  "justvnc-proto",
  "tokio",
 ]
@@ -73,6 +74,9 @@ dependencies = [
 [[package]]
 name = "justvnc-decode"
 version = "0.0.0"
+dependencies = [
+ "justvnc-proto",
+]
 
 [[package]]
 name = "justvnc-proto"

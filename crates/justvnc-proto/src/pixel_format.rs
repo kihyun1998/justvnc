@@ -31,4 +31,33 @@ impl PixelFormat {
             blue_shift: b[12],
         }
     }
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let [rh, rl] = self.red_max.to_be_bytes();
+        let [gh, gl] = self.green_max.to_be_bytes();
+        let [bh, bl] = self.blue_max.to_be_bytes();
+        [
+            self.bits_per_pixel,
+            self.depth,
+            u8::from(self.big_endian),
+            u8::from(self.true_colour),
+            rh,
+            rl,
+            gh,
+            gl,
+            bh,
+            bl,
+            self.red_shift,
+            self.green_shift,
+            self.blue_shift,
+            0,
+            0,
+            0,
+        ]
+    }
+
+    /// Bytes one pixel takes on the wire.
+    pub fn bytes_per_pixel(&self) -> usize {
+        usize::from(self.bits_per_pixel / 8)
+    }
 }

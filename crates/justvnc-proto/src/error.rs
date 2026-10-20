@@ -1,4 +1,4 @@
-use crate::ProtocolVersion;
+use crate::{ProtocolVersion, Rect};
 
 /// Why a handshake could not complete.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +18,23 @@ pub enum HandshakeError {
     /// The server reported that authentication failed. Only 3.8 servers send a reason.
     SecurityFailed { reason: Option<String> },
     /// The peer announced a length above the configured limit.
+    LimitExceeded {
+        field: &'static str,
+        length: u32,
+        max: u32,
+    },
+}
+
+/// Why a message after ServerInit could not be framed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessageError {
+    /// A server message type this session does not handle yet.
+    UnsupportedMessage { message_type: u8 },
+    /// A rectangle in an encoding that cannot be framed.
+    UnsupportedEncoding { encoding: i32 },
+    /// A rectangle reaching outside the framebuffer.
+    RectangleOutOfBounds { rect: Rect },
+    /// The peer announced a value above the configured limit.
     LimitExceeded {
         field: &'static str,
         length: u32,

@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+justvnc-decode.workspace = true
 justvnc-proto.workspace = true
 tokio = { version = "1.54.0", default-features = false, features = ["io-util"], optional = true }
 

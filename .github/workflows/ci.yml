@@ -40,7 +40,7 @@ jobs:
       - name: Start TigerVNC
         run: |
           docker build -t justvnc-tigervnc -f interop/tigervnc/Containerfile interop/tigervnc
-          docker run -d --name tigervnc -p 5900:5900 justvnc-tigervnc
+          docker run -d --name tigervnc -e XVNC_ARGS=-retro -p 5900:5900 justvnc-tigervnc
           docker run -d --name tigervnc-auth -e VNC_PASSWORD=justvnc-secret -p 5901:5900 justvnc-tigervnc
           for port in 5900 5901; do
             for i in $(seq 30); do nc -z 127.0.0.1 $port && break; sleep 1; done

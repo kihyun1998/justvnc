@@ -1,6 +1,20 @@
-use justvnc_client::{ClientConfig, ClientSession, Event, HandshakeError, Limits, PixelFormat};
+use justvnc_client::{
+    ClientConfig, ClientSession, Error, Event, HandshakeError, Limits, PixelFormat,
+};
 
 const TIGERVNC_NONE: &[u8] = include_bytes!("fixtures/tigervnc-3.8-none.server.bin");
+
+/// SetEncodings as RFC 6143 7.5.2 lays it out: type 2, padding, two encodings, then
+/// DesktopSize (-223) and Raw (0). The session sends it right after ServerInit.
+const SET_ENCODINGS: &[u8] = &[2, 0, 0, 2, 0xff, 0xff, 0xff, 0x21, 0, 0, 0, 0];
+
+/// Feeds `data`, expecting any error to come from the handshake.
+fn receive(session: &mut ClientSession, data: &[u8]) -> Result<(), HandshakeError> {
+    session.receive(data).map_err(|e| match e {
+        Error::Handshake(e) => e,
+        other => panic!("expected a handshake error, got {other:?}"),
+    })
+}
 
 fn drain_transmit(session: &mut ClientSession) -> Vec<u8> {
     let mut out = Vec::new();
@@ -14,10 +28,13 @@ fn drain_transmit(session: &mut ClientSession) -> Vec<u8> {
 fn completes_a_3_8_none_handshake_with_tigervnc() {
     let mut session = ClientSession::new(ClientConfig::default());
 
-    session.receive(TIGERVNC_NONE).unwrap();
+    receive(&mut session, TIGERVNC_NONE).unwrap();
 
     // Version, security type None, ClientInit with the shared flag set.
-    assert_eq!(drain_transmit(&mut session), b"RFB 003.008\n\x01\x01");
+    assert_eq!(
+        drain_transmit(&mut session),
+        [&b"RFB 003.008\n\x01\x01"[..], SET_ENCODINGS].concat()
+    );
     let Some(Event::Connected(desktop)) = session.poll_event() else {
         panic!("expected Connected");
     };
@@ -54,7 +71,7 @@ fn answers_a_nonstandard_server_version_with_3_3() {
     ] {
         let mut session = ClientSession::new(ClientConfig::default());
 
-        session.receive(version).unwrap();
+        receive(&mut session, version).unwrap();
 
         assert_eq!(
             drain_transmit(&mut session),
@@ -69,10 +86,13 @@ fn gives_the_same_result_when_bytes_arrive_one_at_a_time() {
     let mut session = ClientSession::new(ClientConfig::default());
 
     for byte in TIGERVNC_NONE {
-        session.receive(std::slice::from_ref(byte)).unwrap();
+        receive(&mut session, std::slice::from_ref(byte)).unwrap();
     }
 
-    assert_eq!(drain_transmit(&mut session), b"RFB 003.008\n\x01\x01");
+    assert_eq!(
+        drain_transmit(&mut session),
+        [&b"RFB 003.008\n\x01\x01"[..], SET_ENCODINGS].concat()
+    );
     let Some(Event::Connected(desktop)) = session.poll_event() else {
         panic!("expected Connected");
     };
@@ -86,7 +106,7 @@ const TIGHTVNC_REFUSED: &[u8] = include_bytes!("fixtures/tightvnc-3.8-loopback-r
 fn reports_the_reason_when_tightvnc_refuses_the_connection() {
     let mut session = ClientSession::new(ClientConfig::default());
 
-    let result = session.receive(TIGHTVNC_REFUSED);
+    let result = receive(&mut session, TIGHTVNC_REFUSED);
 
     assert_eq!(
         result,
@@ -103,7 +123,7 @@ const SERVER_VERSION_3_8: &[u8] = b"RFB 003.008\n";
 fn asks_for_a_password_when_the_server_offers_only_vnc_authentication() {
     let mut session = ClientSession::new(ClientConfig::default());
 
-    let result = session.receive(&[SERVER_VERSION_3_8, &[1, 2]].concat());
+    let result = receive(&mut session, &[SERVER_VERSION_3_8, &[1, 2]].concat());
 
     assert_eq!(result, Err(HandshakeError::PasswordRequired));
     assert_eq!(
@@ -118,7 +138,7 @@ fn refuses_when_the_server_offers_no_security_type_it_accepts() {
     let mut session = ClientSession::new(with_password("justvnc-secret"));
 
     // Two security types offered: 16 (Tight) and 19 (VeNCrypt).
-    let result = session.receive(&[SERVER_VERSION_3_8, &[2, 16, 19]].concat());
+    let result = receive(&mut session, &[SERVER_VERSION_3_8, &[2, 16, 19]].concat());
 
     assert_eq!(
         result,
@@ -139,7 +159,7 @@ fn reports_the_reason_when_security_fails() {
 
     let mut bytes = [SERVER_VERSION_3_8, &[1, 1], &[0, 0, 0, 1], &[0, 0, 0, 6]].concat();
     bytes.extend_from_slice(b"denied");
-    let result = session.receive(&bytes);
+    let result = receive(&mut session, &bytes);
 
     assert_eq!(
         result,
@@ -165,7 +185,7 @@ fn rejects_a_desktop_name_longer_than_the_limit_before_it_arrives() {
     let header = &TIGERVNC_NONE[..TIGERVNC_NONE.len() - 12 - 4];
     let mut bytes = header.to_vec();
     bytes.extend_from_slice(&9u32.to_be_bytes());
-    let result = session.receive(&bytes);
+    let result = receive(&mut session, &bytes);
 
     assert_eq!(
         result,
@@ -188,7 +208,10 @@ fn rejects_a_failure_reason_longer_than_the_limit_before_it_arrives() {
     };
     let mut session = ClientSession::new(config);
 
-    let result = session.receive(&[SERVER_VERSION_3_8, &[0], &u32::MAX.to_be_bytes()].concat());
+    let result = receive(
+        &mut session,
+        &[SERVER_VERSION_3_8, &[0], &u32::MAX.to_be_bytes()].concat(),
+    );
 
     assert_eq!(
         result,
@@ -207,9 +230,12 @@ fn asks_for_exclusive_access_when_not_shared() {
         ..ClientConfig::default()
     });
 
-    session.receive(TIGERVNC_NONE).unwrap();
+    receive(&mut session, TIGERVNC_NONE).unwrap();
 
-    assert_eq!(drain_transmit(&mut session), b"RFB 003.008\n\x01\x00");
+    assert_eq!(
+        drain_transmit(&mut session),
+        [&b"RFB 003.008\n\x01\x00"[..], SET_ENCODINGS].concat()
+    );
 }
 
 /// A recorded handshake: what the server sent and what a client the server accepted sent back.
@@ -239,9 +265,12 @@ fn authenticates_to_tigervnc_with_vnc_authentication() {
     let rec = recording!("tigervnc-3.8-vncauth");
     let mut session = ClientSession::new(with_password("justvnc-secret"));
 
-    session.receive(rec.server).unwrap();
+    receive(&mut session, rec.server).unwrap();
 
-    assert_eq!(drain_transmit(&mut session), rec.client);
+    assert_eq!(
+        drain_transmit(&mut session),
+        [rec.client, SET_ENCODINGS].concat()
+    );
     let Some(Event::Connected(desktop)) = session.poll_event() else {
         panic!("expected Connected");
     };
@@ -253,9 +282,12 @@ fn pads_a_short_password_with_zeroes() {
     let rec = recording!("x11vnc-3.8-vncauth-short-password");
     let mut session = ClientSession::new(with_password("abc"));
 
-    session.receive(rec.server).unwrap();
+    receive(&mut session, rec.server).unwrap();
 
-    assert_eq!(drain_transmit(&mut session), rec.client);
+    assert_eq!(
+        drain_transmit(&mut session),
+        [rec.client, SET_ENCODINGS].concat()
+    );
     assert!(matches!(session.poll_event(), Some(Event::Connected(_))));
 }
 
@@ -264,7 +296,7 @@ fn reports_tigervnc_rejecting_a_wrong_password_with_its_reason() {
     let rec = recording!("tigervnc-3.8-vncauth-wrong-password");
     let mut session = ClientSession::new(with_password("wrong-pw"));
 
-    let result = session.receive(rec.server);
+    let result = receive(&mut session, rec.server);
 
     assert_eq!(
         result,
@@ -278,9 +310,12 @@ fn reports_tigervnc_rejecting_a_wrong_password_with_its_reason() {
 fn assert_connects_to_x11vnc(rec: Recording, config: ClientConfig) {
     let mut session = ClientSession::new(config);
 
-    session.receive(rec.server).unwrap();
+    receive(&mut session, rec.server).unwrap();
 
-    assert_eq!(drain_transmit(&mut session), rec.client);
+    assert_eq!(
+        drain_transmit(&mut session),
+        [rec.client, SET_ENCODINGS].concat()
+    );
     let Some(Event::Connected(desktop)) = session.poll_event() else {
         panic!("expected Connected");
     };
@@ -313,7 +348,7 @@ fn reports_a_3_7_authentication_failure_without_a_reason() {
     let rec = recording!("x11vnc-3.7-vncauth-wrong-password");
     let mut session = ClientSession::new(with_password("wrong-pw"));
 
-    let result = session.receive(rec.server);
+    let result = receive(&mut session, rec.server);
 
     assert_eq!(result, Err(HandshakeError::SecurityFailed { reason: None }));
     assert_eq!(drain_transmit(&mut session), rec.client);
@@ -328,7 +363,7 @@ fn reports_the_reason_when_a_3_3_server_refuses_the_connection() {
 
     let mut bytes = [SERVER_VERSION_3_3, &[0, 0, 0, 0], &[0, 0, 0, 4]].concat();
     bytes.extend_from_slice(b"busy");
-    let result = session.receive(&bytes);
+    let result = receive(&mut session, &bytes);
 
     assert_eq!(
         result,
@@ -342,7 +377,7 @@ fn reports_the_reason_when_a_3_3_server_refuses_the_connection() {
 fn rejects_a_security_type_a_3_3_server_may_not_choose() {
     let mut session = ClientSession::new(with_password("justvnc-secret"));
 
-    let result = session.receive(&[SERVER_VERSION_3_3, &[0, 0, 0, 16]].concat());
+    let result = receive(&mut session, &[SERVER_VERSION_3_3, &[0, 0, 0, 16]].concat());
 
     assert_eq!(
         result,
@@ -354,7 +389,7 @@ fn rejects_a_security_type_a_3_3_server_may_not_choose() {
 fn asks_for_a_password_when_a_3_3_server_chooses_vnc_authentication() {
     let mut session = ClientSession::new(ClientConfig::default());
 
-    let result = session.receive(&[SERVER_VERSION_3_3, &[0, 0, 0, 2]].concat());
+    let result = receive(&mut session, &[SERVER_VERSION_3_3, &[0, 0, 0, 2]].concat());
 
     assert_eq!(result, Err(HandshakeError::PasswordRequired));
 }
@@ -380,7 +415,7 @@ fn keeps_the_password_out_of_debug_output() {
     let config = with_password("justvnc-secret");
     let mut session = ClientSession::new(config.clone());
     let rec = recording!("tigervnc-3.8-vncauth");
-    session.receive(&rec.server[..20]).unwrap();
+    receive(&mut session, &rec.server[..20]).unwrap();
 
     for debug in [format!("{config:?}"), format!("{session:?}")] {
         assert!(!debug.contains("justvnc-secret"), "{debug}");

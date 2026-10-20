@@ -5,4 +5,6 @@ if [ -n "$VNC_PASSWORD" ]; then
 else
   set -- -SecurityTypes None
 fi
-exec Xvnc :0 -rfbport 5900 -geometry 1024x768 -depth 24 -desktop justvnc-test -AlwaysShared "$@"
+# GEOMETRY: screen size (default 1024x768). XVNC_ARGS: extra Xvnc arguments, e.g. -retro.
+# shellcheck disable=SC2086
+exec Xvnc :0 -rfbport 5900 -geometry "${GEOMETRY:-1024x768}" -depth 24 -desktop justvnc-test -AlwaysShared "$@" $XVNC_ARGS

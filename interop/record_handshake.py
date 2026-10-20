@@ -1,15 +1,18 @@
 """Records both directions of an RFB handshake with a real server, up to ServerInit.
 
-Usage: python record_handshake.py HOST PORT OUT_PREFIX [--version 3.3|3.7|3.8] [--password PW]
+Usage: python record_handshake.py HOST PORT OUT_PREFIX [--version 3.3|3.7|3.8] [--password PW] [--update]
 
 The client side is scripted: it answers with --version (default 3.8), picks the first security
 type the server offers that it can do (None, or VNC authentication when --password is given),
 answers VNC authentication with pycryptodome's DES, and sends ClientInit with the shared flag
-set. Server bytes go to OUT_PREFIX.server.bin and client bytes to OUT_PREFIX.client.bin. It stops
-at the end of ServerInit or when the server closes.
+set. With --update it then sends SetEncodings (DesktopSize, Raw) and a full FramebufferUpdateRequest
+and reads one FramebufferUpdate of Raw and DesktopSize rectangles. Server bytes go to
+OUT_PREFIX.server.bin and client bytes to OUT_PREFIX.client.bin. It stops at the end of ServerInit
+(or of the update) or when the server closes.
 """
 import argparse
 import socket
+import struct
 
 from Crypto.Cipher import DES
 
@@ -27,6 +30,7 @@ def main():
     p.add_argument("out_prefix")
     p.add_argument("--version", default="3.8", choices=["3.3", "3.7", "3.8"])
     p.add_argument("--password")
+    p.add_argument("--update", action="store_true")
     a = p.parse_args()
 
     sock = socket.create_connection((a.host, a.port), timeout=10)
@@ -78,6 +82,16 @@ def main():
         send(bytes([1]))
         header = read(24)
         read(int.from_bytes(header[20:24], "big"))
+        if a.update:
+            width, height = struct.unpack(">HH", header[:4])
+            bytes_per_pixel = header[4] // 8
+            send(struct.pack(">BBHii", 2, 0, 2, -223, 0))
+            send(struct.pack(">BBHHHH", 3, 0, 0, 0, width, height))
+            _, _, rects = struct.unpack(">BBH", read(4))
+            for _ in range(rects):
+                _, _, w, h, encoding = struct.unpack(">HHHHi", read(12))
+                if encoding == 0:
+                    read(w * h * bytes_per_pixel)
     except EOFError:
         pass
     finally:
