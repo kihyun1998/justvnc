@@ -1,6 +1,8 @@
 FROM ubuntu:24.04
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tigervnc-standalone-server \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tigervnc-standalone-server tigervnc-tools \
  && rm -rf /var/lib/apt/lists/*
+COPY start.sh /start.sh
 EXPOSE 5900
-CMD ["Xvnc", ":0", "-rfbport", "5900", "-SecurityTypes", "None", "-geometry", "1024x768", "-depth", "24", "-desktop", "justvnc-test", "-AlwaysShared"]
+# VNC_PASSWORD set: security type VncAuth with that password. Unset: security type None.
+CMD ["sh", "/start.sh"]

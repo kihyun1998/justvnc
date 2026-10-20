@@ -9,10 +9,14 @@ pub enum HandshakeError {
     UnsupportedVersion { server: ProtocolVersion },
     /// The server refused the connection before authentication, with its reason.
     ConnectionRefused { reason: String },
+    /// The server requires VNC authentication and no password was configured.
+    PasswordRequired,
+    /// A 3.3 server chose a security type other than 0, 1 or 2.
+    UnexpectedSecurityType { value: u32 },
     /// None of the security types the server offered is one this session accepts.
     NoSupportedSecurityType { offered: Vec<u8> },
-    /// The server reported that authentication failed, with its reason.
-    SecurityFailed { reason: String },
+    /// The server reported that authentication failed. Only 3.8 servers send a reason.
+    SecurityFailed { reason: Option<String> },
     /// The peer announced a length above the configured limit.
     LimitExceeded {
         field: &'static str,

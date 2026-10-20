@@ -1,13 +1,15 @@
 use std::collections::VecDeque;
 
 use justvnc_proto::client::ClientHandshake;
-use justvnc_proto::{HandshakeError, Limits, ServerInit};
+use justvnc_proto::{HandshakeError, Limits, Password, ServerInit};
 
 /// How a client session behaves.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     /// Ask the server to leave other clients connected (ClientInit shared-flag).
     pub shared: bool,
+    /// Password for VNC authentication. Without one, VNC authentication is never chosen.
+    pub password: Option<Password>,
     pub limits: Limits,
 }
 
@@ -15,6 +17,7 @@ impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             shared: true,
+            password: None,
             limits: Limits::default(),
         }
     }
@@ -37,7 +40,7 @@ pub struct ClientSession {
 impl ClientSession {
     pub fn new(config: ClientConfig) -> Self {
         Self {
-            handshake: ClientHandshake::new(config.shared, config.limits),
+            handshake: ClientHandshake::new(config.shared, config.password, config.limits),
             events: VecDeque::new(),
         }
     }

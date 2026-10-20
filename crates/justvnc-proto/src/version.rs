@@ -6,6 +6,8 @@ pub struct ProtocolVersion {
 }
 
 impl ProtocolVersion {
+    pub const V3_3: Self = Self { major: 3, minor: 3 };
+    pub const V3_7: Self = Self { major: 3, minor: 7 };
     pub const V3_8: Self = Self { major: 3, minor: 8 };
     /// Size of the ProtocolVersion message.
     pub const LEN: usize = 12;

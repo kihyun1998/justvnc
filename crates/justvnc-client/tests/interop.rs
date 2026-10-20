@@ -24,3 +24,26 @@ async fn connects_to_tigervnc_and_reports_its_desktop() {
     assert_eq!(desktop.name.to_string_lossy(), "justvnc-test");
     assert_eq!(desktop.pixel_format.bits_per_pixel, 32);
 }
+
+/// The password the `interop/tigervnc` container is started with (VNC_PASSWORD) in CI.
+const TIGERVNC_PASSWORD: &str = "justvnc-secret";
+
+#[tokio::test]
+#[ignore = "needs a running TigerVNC with VNC_PASSWORD; set JUSTVNC_TIGERVNC_AUTH_ADDR"]
+async fn authenticates_to_tigervnc_with_a_password() {
+    let addr =
+        std::env::var("JUSTVNC_TIGERVNC_AUTH_ADDR").expect("JUSTVNC_TIGERVNC_AUTH_ADDR is not set");
+    let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let config = ClientConfig {
+        password: Some(TIGERVNC_PASSWORD.into()),
+        ..ClientConfig::default()
+    };
+
+    let connection =
+        tokio::time::timeout(std::time::Duration::from_secs(10), connect(stream, config))
+            .await
+            .expect("handshake timed out")
+            .unwrap();
+
+    assert_eq!(connection.desktop().name.to_string_lossy(), "justvnc-test");
+}

@@ -3,7 +3,7 @@
 mod session;
 
 pub use justvnc_proto::{
-    DesktopName, HandshakeError, Limits, PixelFormat, ProtocolVersion, ServerInit,
+    DesktopName, HandshakeError, Limits, Password, PixelFormat, ProtocolVersion, ServerInit,
 };
 pub use session::{ClientConfig, ClientSession, Event};
 

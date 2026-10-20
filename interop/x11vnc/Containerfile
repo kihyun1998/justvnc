@@ -1,0 +1,8 @@
+FROM ubuntu:24.04
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends x11vnc xvfb \
+ && rm -rf /var/lib/apt/lists/*
+COPY start.sh /start.sh
+EXPOSE 5900
+# RFB_VERSION: the version x11vnc advertises (default 3.8). VNC_PASSWORD: VncAuth when set, None otherwise.
+CMD ["sh", "/start.sh"]

@@ -1,8 +1,6 @@
-use justvnc_client::{
-    ClientConfig, ClientSession, Event, HandshakeError, Limits, PixelFormat, ProtocolVersion,
-};
+use justvnc_client::{ClientConfig, ClientSession, Event, HandshakeError, Limits, PixelFormat};
 
-const TIGERVNC_NONE: &[u8] = include_bytes!("fixtures/tigervnc-3.8-none.bin");
+const TIGERVNC_NONE: &[u8] = include_bytes!("fixtures/tigervnc-3.8-none.server.bin");
 
 fn drain_transmit(session: &mut ClientSession) -> Vec<u8> {
     let mut out = Vec::new();
@@ -44,22 +42,26 @@ fn completes_a_3_8_none_handshake_with_tigervnc() {
 }
 
 #[test]
-fn treats_a_nonstandard_server_version_as_3_3_and_refuses_it() {
+fn answers_a_nonstandard_server_version_with_3_3() {
     // RFC 6143 7.1.1: versions other than 3.3, 3.7 and 3.8 are interpreted as 3.3.
-    let mut session = ClientSession::new(ClientConfig::default());
+    for version in [
+        &b"RFB 003.889
+"[..],
+        b"RFB 004.001
+",
+        b"RFB 003.005
+",
+    ] {
+        let mut session = ClientSession::new(ClientConfig::default());
 
-    let result = session.receive(b"RFB 003.889\n");
+        session.receive(version).unwrap();
 
-    assert_eq!(
-        result,
-        Err(HandshakeError::UnsupportedVersion {
-            server: ProtocolVersion {
-                major: 3,
-                minor: 889
-            }
-        })
-    );
-    assert_eq!(session.poll_transmit(), None);
+        assert_eq!(
+            drain_transmit(&mut session),
+            b"RFB 003.003
+"
+        );
+    }
 }
 
 #[test]
@@ -78,7 +80,7 @@ fn gives_the_same_result_when_bytes_arrive_one_at_a_time() {
     assert_eq!(desktop.name.as_bytes(), b"justvnc-test");
 }
 
-const TIGHTVNC_REFUSED: &[u8] = include_bytes!("fixtures/tightvnc-3.8-loopback-refused.bin");
+const TIGHTVNC_REFUSED: &[u8] = include_bytes!("fixtures/tightvnc-3.8-loopback-refused.server.bin");
 
 #[test]
 fn reports_the_reason_when_tightvnc_refuses_the_connection() {
@@ -98,17 +100,37 @@ fn reports_the_reason_when_tightvnc_refuses_the_connection() {
 const SERVER_VERSION_3_8: &[u8] = b"RFB 003.008\n";
 
 #[test]
-fn refuses_when_the_server_offers_no_security_type_it_accepts() {
+fn asks_for_a_password_when_the_server_offers_only_vnc_authentication() {
     let mut session = ClientSession::new(ClientConfig::default());
 
-    // One security type offered: 2, VNC authentication.
     let result = session.receive(&[SERVER_VERSION_3_8, &[1, 2]].concat());
+
+    assert_eq!(result, Err(HandshakeError::PasswordRequired));
+    assert_eq!(
+        drain_transmit(&mut session),
+        b"RFB 003.008
+"
+    );
+}
+
+#[test]
+fn refuses_when_the_server_offers_no_security_type_it_accepts() {
+    let mut session = ClientSession::new(with_password("justvnc-secret"));
+
+    // Two security types offered: 16 (Tight) and 19 (VeNCrypt).
+    let result = session.receive(&[SERVER_VERSION_3_8, &[2, 16, 19]].concat());
 
     assert_eq!(
         result,
-        Err(HandshakeError::NoSupportedSecurityType { offered: vec![2] })
+        Err(HandshakeError::NoSupportedSecurityType {
+            offered: vec![16, 19]
+        })
     );
-    assert_eq!(drain_transmit(&mut session), b"RFB 003.008\n");
+    assert_eq!(
+        drain_transmit(&mut session),
+        b"RFB 003.008
+"
+    );
 }
 
 #[test]
@@ -122,7 +144,7 @@ fn reports_the_reason_when_security_fails() {
     assert_eq!(
         result,
         Err(HandshakeError::SecurityFailed {
-            reason: "denied".into()
+            reason: Some("denied".into())
         })
     );
     assert_eq!(drain_transmit(&mut session), b"RFB 003.008\n\x01");
@@ -188,4 +210,181 @@ fn asks_for_exclusive_access_when_not_shared() {
     session.receive(TIGERVNC_NONE).unwrap();
 
     assert_eq!(drain_transmit(&mut session), b"RFB 003.008\n\x01\x00");
+}
+
+/// A recorded handshake: what the server sent and what a client the server accepted sent back.
+struct Recording {
+    server: &'static [u8],
+    client: &'static [u8],
+}
+
+macro_rules! recording {
+    ($name:literal) => {
+        Recording {
+            server: include_bytes!(concat!("fixtures/", $name, ".server.bin")),
+            client: include_bytes!(concat!("fixtures/", $name, ".client.bin")),
+        }
+    };
+}
+
+fn with_password(password: &str) -> ClientConfig {
+    ClientConfig {
+        password: Some(password.into()),
+        ..ClientConfig::default()
+    }
+}
+
+#[test]
+fn authenticates_to_tigervnc_with_vnc_authentication() {
+    let rec = recording!("tigervnc-3.8-vncauth");
+    let mut session = ClientSession::new(with_password("justvnc-secret"));
+
+    session.receive(rec.server).unwrap();
+
+    assert_eq!(drain_transmit(&mut session), rec.client);
+    let Some(Event::Connected(desktop)) = session.poll_event() else {
+        panic!("expected Connected");
+    };
+    assert_eq!(desktop.name.as_bytes(), b"justvnc-test");
+}
+
+#[test]
+fn pads_a_short_password_with_zeroes() {
+    let rec = recording!("x11vnc-3.8-vncauth-short-password");
+    let mut session = ClientSession::new(with_password("abc"));
+
+    session.receive(rec.server).unwrap();
+
+    assert_eq!(drain_transmit(&mut session), rec.client);
+    assert!(matches!(session.poll_event(), Some(Event::Connected(_))));
+}
+
+#[test]
+fn reports_tigervnc_rejecting_a_wrong_password_with_its_reason() {
+    let rec = recording!("tigervnc-3.8-vncauth-wrong-password");
+    let mut session = ClientSession::new(with_password("wrong-pw"));
+
+    let result = session.receive(rec.server);
+
+    assert_eq!(
+        result,
+        Err(HandshakeError::SecurityFailed {
+            reason: Some("Authentication failure".into())
+        })
+    );
+    assert_eq!(drain_transmit(&mut session), rec.client);
+}
+
+fn assert_connects_to_x11vnc(rec: Recording, config: ClientConfig) {
+    let mut session = ClientSession::new(config);
+
+    session.receive(rec.server).unwrap();
+
+    assert_eq!(drain_transmit(&mut session), rec.client);
+    let Some(Event::Connected(desktop)) = session.poll_event() else {
+        panic!("expected Connected");
+    };
+    assert_eq!((desktop.width, desktop.height), (800, 600));
+    assert_eq!(desktop.name.as_bytes(), b"justvnc-x11vnc");
+    // x11vnc sends 0xff for true-colour-flag; any non-zero value means true.
+    assert!(desktop.pixel_format.true_colour);
+}
+
+#[test]
+fn connects_to_a_3_3_server_without_authentication() {
+    assert_connects_to_x11vnc(recording!("x11vnc-3.3-none"), ClientConfig::default());
+}
+
+#[test]
+fn authenticates_to_a_3_3_server_that_chose_vnc_authentication() {
+    assert_connects_to_x11vnc(
+        recording!("x11vnc-3.3-vncauth"),
+        with_password("justvnc-secret"),
+    );
+}
+
+#[test]
+fn connects_to_a_3_7_server_without_authentication() {
+    assert_connects_to_x11vnc(recording!("x11vnc-3.7-none"), ClientConfig::default());
+}
+
+#[test]
+fn reports_a_3_7_authentication_failure_without_a_reason() {
+    let rec = recording!("x11vnc-3.7-vncauth-wrong-password");
+    let mut session = ClientSession::new(with_password("wrong-pw"));
+
+    let result = session.receive(rec.server);
+
+    assert_eq!(result, Err(HandshakeError::SecurityFailed { reason: None }));
+    assert_eq!(drain_transmit(&mut session), rec.client);
+}
+
+const SERVER_VERSION_3_3: &[u8] = b"RFB 003.003
+";
+
+#[test]
+fn reports_the_reason_when_a_3_3_server_refuses_the_connection() {
+    let mut session = ClientSession::new(ClientConfig::default());
+
+    let mut bytes = [SERVER_VERSION_3_3, &[0, 0, 0, 0], &[0, 0, 0, 4]].concat();
+    bytes.extend_from_slice(b"busy");
+    let result = session.receive(&bytes);
+
+    assert_eq!(
+        result,
+        Err(HandshakeError::ConnectionRefused {
+            reason: "busy".into()
+        })
+    );
+}
+
+#[test]
+fn rejects_a_security_type_a_3_3_server_may_not_choose() {
+    let mut session = ClientSession::new(with_password("justvnc-secret"));
+
+    let result = session.receive(&[SERVER_VERSION_3_3, &[0, 0, 0, 16]].concat());
+
+    assert_eq!(
+        result,
+        Err(HandshakeError::UnexpectedSecurityType { value: 16 })
+    );
+}
+
+#[test]
+fn asks_for_a_password_when_a_3_3_server_chooses_vnc_authentication() {
+    let mut session = ClientSession::new(ClientConfig::default());
+
+    let result = session.receive(&[SERVER_VERSION_3_3, &[0, 0, 0, 2]].concat());
+
+    assert_eq!(result, Err(HandshakeError::PasswordRequired));
+}
+
+#[test]
+fn picks_the_first_usable_security_type_in_the_servers_order() {
+    for (offered, expected) in [([2, 1], 2), ([1, 2], 1)] {
+        let mut session = ClientSession::new(with_password("justvnc-secret"));
+
+        session
+            .receive(&[SERVER_VERSION_3_8, &[2], &offered].concat())
+            .unwrap();
+
+        assert_eq!(
+            drain_transmit(&mut session),
+            [b"RFB 003.008\n".as_slice(), &[expected]].concat()
+        );
+    }
+}
+
+#[test]
+fn keeps_the_password_out_of_debug_output() {
+    let config = with_password("justvnc-secret");
+    let mut session = ClientSession::new(config.clone());
+    let rec = recording!("tigervnc-3.8-vncauth");
+    session.receive(&rec.server[..20]).unwrap();
+
+    for debug in [format!("{config:?}"), format!("{session:?}")] {
+        assert!(!debug.contains("justvnc-secret"), "{debug}");
+        // The bytes of the password, as a derived Debug of a Vec<u8> would print them.
+        assert!(!debug.contains("106, 117, 115, 116"), "{debug}");
+    }
 }

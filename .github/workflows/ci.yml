@@ -41,8 +41,12 @@ jobs:
         run: |
           docker build -t justvnc-tigervnc -f interop/tigervnc/Containerfile interop/tigervnc
           docker run -d --name tigervnc -p 5900:5900 justvnc-tigervnc
-          for i in $(seq 30); do nc -z 127.0.0.1 5900 && exit 0; sleep 1; done
-          docker logs tigervnc; exit 1
+          docker run -d --name tigervnc-auth -e VNC_PASSWORD=justvnc-secret -p 5901:5900 justvnc-tigervnc
+          for port in 5900 5901; do
+            for i in $(seq 30); do nc -z 127.0.0.1 $port && break; sleep 1; done
+            nc -z 127.0.0.1 $port || { docker logs tigervnc; docker logs tigervnc-auth; exit 1; }
+          done
       - run: cargo test -p justvnc-client --features tokio --test interop -- --ignored
         env:
           JUSTVNC_TIGERVNC_ADDR: 127.0.0.1:5900
+          JUSTVNC_TIGERVNC_AUTH_ADDR: 127.0.0.1:5901
