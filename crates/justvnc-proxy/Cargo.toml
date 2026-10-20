@@ -1,0 +1,9 @@
+[package]
+name = "justvnc-proxy"
+description = "RFB Proxy between a Viewer and a Target"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

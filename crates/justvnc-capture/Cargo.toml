@@ -1,0 +1,9 @@
+[package]
+name = "justvnc-capture"
+description = "Screen capture and input injection for the RFB server role"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

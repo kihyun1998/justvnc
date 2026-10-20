@@ -1,0 +1,6 @@
+FROM ubuntu:24.04
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tigervnc-standalone-server \
+ && rm -rf /var/lib/apt/lists/*
+EXPOSE 5900
+CMD ["Xvnc", ":0", "-rfbport", "5900", "-SecurityTypes", "None", "-geometry", "1024x768", "-depth", "24", "-desktop", "justvnc-test", "-AlwaysShared"]

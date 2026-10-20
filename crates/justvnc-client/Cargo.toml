@@ -1,0 +1,17 @@
+[package]
+name = "justvnc-client"
+description = "RFB client role"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+justvnc-proto.workspace = true
+tokio = { version = "1.54.0", default-features = false, features = ["io-util"], optional = true }
+
+[features]
+tokio = ["dep:tokio"]
+
+[dev-dependencies]
+tokio = { version = "1.54.0", features = ["macros", "rt", "net", "time"] }

@@ -1,0 +1,1 @@
+//! RFB server role.

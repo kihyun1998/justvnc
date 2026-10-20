@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kihyun1998/justvnc"
+
+[workspace.dependencies]
+justvnc-proto = { path = "crates/justvnc-proto" }
+justvnc-decode = { path = "crates/justvnc-decode" }
+justvnc-client = { path = "crates/justvnc-client" }
+justvnc-server = { path = "crates/justvnc-server" }
+justvnc-proxy = { path = "crates/justvnc-proxy" }
