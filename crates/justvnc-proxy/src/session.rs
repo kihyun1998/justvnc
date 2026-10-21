@@ -538,3 +538,28 @@ pub fn narrow_encodings(offered: &[i32]) -> Vec<i32> {
         })
         .collect()
 }
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ViewerHandshake(_) => f.write_str("the Viewer's handshake failed"),
+            Self::TargetHandshake(_) => f.write_str("the Target's handshake failed"),
+            Self::Viewer(_) => f.write_str("the Viewer sent a message that cannot be framed"),
+            Self::Target(_) => f.write_str("the Target sent a message that cannot be framed"),
+            Self::UnsupportedPixelFormat(format) => {
+                write!(f, "pixel format not supported: {format}")
+            }
+            Self::Ended(reason) => write!(f, "the Tap ended the session: {reason:?}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ViewerHandshake(e) | Self::TargetHandshake(e) => Some(e),
+            Self::Viewer(e) | Self::Target(e) => Some(e),
+            Self::UnsupportedPixelFormat(_) | Self::Ended(_) => None,
+        }
+    }
+}

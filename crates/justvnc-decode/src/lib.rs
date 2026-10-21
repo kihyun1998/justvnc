@@ -72,3 +72,20 @@ impl Decoder {
         }
     }
 }
+
+impl std::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedEncoding { encoding } => {
+                write!(f, "no decoder for encoding {encoding}")
+            }
+            Self::WrongLength { expected, actual } => {
+                write!(f, "rectangle data is {actual} bytes, expected {expected}")
+            }
+            Self::Corrupt(what) => write!(f, "corrupt rectangle data: {what}"),
+            Self::Unsupported(what) => write!(f, "not supported: {what}"),
+        }
+    }
+}
+
+impl std::error::Error for DecodeError {}

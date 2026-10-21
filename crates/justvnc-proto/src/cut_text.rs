@@ -42,3 +42,15 @@ impl std::fmt::Display for CutText {
             .try_for_each(|&b| std::fmt::Write::write_char(f, char::from(b)))
     }
 }
+
+impl std::fmt::Display for NotLatin1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:?} cannot be sent as Latin-1 clipboard text",
+            self.character
+        )
+    }
+}
+
+impl std::error::Error for NotLatin1 {}

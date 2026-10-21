@@ -433,3 +433,28 @@ impl ServerSession {
         }
     }
 }
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Handshake(e) => e.fmt(f),
+            Self::Message(e) => e.fmt(f),
+            Self::UnsupportedPixelFormat(format) => {
+                write!(f, "pixel format not supported: {format}")
+            }
+            Self::ViewerCannotResize => {
+                f.write_str("the framebuffer changed size and the Viewer did not offer DesktopSize")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Handshake(e) => e.source(),
+            Self::Message(e) => e.source(),
+            Self::UnsupportedPixelFormat(_) | Self::ViewerCannotResize => None,
+        }
+    }
+}

@@ -82,3 +82,29 @@ impl PixelFormat {
         usize::from(self.bits_per_pixel / 8)
     }
 }
+
+impl std::fmt::Display for PixelFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} bpp, depth {}, ", self.bits_per_pixel, self.depth)?;
+        if self.true_colour {
+            write!(
+                f,
+                "true colour, max {}/{}/{}, shifts {}/{}/{}",
+                self.red_max,
+                self.green_max,
+                self.blue_max,
+                self.red_shift,
+                self.green_shift,
+                self.blue_shift
+            )?;
+        } else {
+            f.write_str("colour-mapped")?;
+        }
+        let order = if self.big_endian {
+            "big-endian"
+        } else {
+            "little-endian"
+        };
+        write!(f, ", {order}")
+    }
+}

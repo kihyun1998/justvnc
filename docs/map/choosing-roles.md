@@ -10,6 +10,6 @@ The umbrella crate `justvnc` re-exports the role crates as modules, each behind 
 - `tests/features.rs` checks that `jpeg` reaches the client role (`ClientConfig::jpeg_quality` exists only then) and the decoder (a Tight JPEG rectangle is `Corrupt` rather than `Unsupported`). The decoder's case has to run with `decode` and `jpeg` but not `client`: the client's own `jpeg` feature turns the decoder's on, so with `--all-features` a missing forward from the umbrella goes unnoticed. CI runs `--features decode,jpeg` for that.
 - The README's client, server and Proxy examples are the crate's doc comment when `client`, `server`, `proxy` and `tokio` are all on, so `--all-features` compiles them as doc tests (`no_run`: they need a network). Removing the `tokio` forward of any role fails them.
 
-## The examples' error types
+## Errors
 
-The role crates' error types implement `Debug` but not `std::error::Error` or `Display`, so the README examples return each driver's own error from `main` (it converts from `io::Error`) instead of `Box<dyn Error>`.
+Every public error type implements `Display` and `std::error::Error` (#33), so the README examples return `Box<dyn std::error::Error>`. A variant that only wraps another error (a session's `Handshake`, a driver's `Protocol` or `Io`) shows that error's message and passes on its `source()`, so a report does not say the same thing twice. A variant that adds something, the Proxy's `TargetHandshake` or `Viewer`, says what it adds and gives the wrapped error as its `source()`. Strings a peer wrote, a refusal or failure reason, and a Tap's reason are printed quoted and escaped, so a hostile server cannot put control characters into a log or a terminal through them.

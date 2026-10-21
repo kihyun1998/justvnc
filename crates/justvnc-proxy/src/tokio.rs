@@ -169,3 +169,25 @@ impl From<std::io::Error> for ProxyError {
         Self::Io(e)
     }
 }
+
+impl std::fmt::Display for ProxyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Protocol(e) => e.fmt(f),
+            Self::Io(e) => e.fmt(f),
+            Self::ViewerClosed => {
+                f.write_str("the Viewer closed the connection before the relay started")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ProxyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Protocol(e) => e.source(),
+            Self::Io(e) => e.source(),
+            Self::ViewerClosed => None,
+        }
+    }
+}

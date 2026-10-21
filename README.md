@@ -28,12 +28,12 @@ justvnc = { version = "0.0.0", features = ["client", "tokio"] }
 ```
 
 ```rust,no_run
-use justvnc::client::tokio::{ConnectError, connect};
+use justvnc::client::tokio::connect;
 use justvnc::client::{ClientConfig, Event, Rect};
 use tokio::net::TcpStream;
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), ConnectError> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stream = TcpStream::connect("127.0.0.1:5900").await?;
     let mut connection = connect(stream, ClientConfig::default()).await?;
     let desktop = connection.desktop();
@@ -58,7 +58,7 @@ justvnc = { version = "0.0.0", features = ["server", "tokio"] }
 ```
 
 ```rust,no_run
-use justvnc::server::tokio::{ServeError, accept};
+use justvnc::server::tokio::accept;
 use justvnc::server::{Framebuffer, PixelFormat, Rect, ServerConfig};
 use tokio::net::TcpListener;
 
@@ -95,7 +95,7 @@ impl Framebuffer for Grey {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), ServeError> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:5900").await?;
     let (stream, _) = listener.accept().await?;
     let mut screen = Grey;
@@ -117,7 +117,7 @@ justvnc = { version = "0.0.0", features = ["proxy", "tokio"] }
 ```
 
 ```rust,no_run
-use justvnc::proxy::tokio::{ProxyError, serve};
+use justvnc::proxy::tokio::serve;
 use justvnc::proxy::{
     ClientMessage, Password, ProxyConfig, SecurityType, Tap, TargetMessage, Verdict, verify,
 };
@@ -143,7 +143,7 @@ impl Tap for NoClipboard {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), ProxyError> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:5901").await?;
     let (viewer, _) = listener.accept().await?;
     let config = ProxyConfig {

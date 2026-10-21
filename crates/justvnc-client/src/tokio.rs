@@ -139,3 +139,23 @@ impl From<std::io::Error> for ConnectError {
         Self::Io(e)
     }
 }
+
+impl std::fmt::Display for ConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Protocol(e) => e.fmt(f),
+            Self::Io(e) => e.fmt(f),
+            Self::Closed => f.write_str("the server closed the connection"),
+        }
+    }
+}
+
+impl std::error::Error for ConnectError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Protocol(e) => e.source(),
+            Self::Io(e) => e.source(),
+            Self::Closed => None,
+        }
+    }
+}

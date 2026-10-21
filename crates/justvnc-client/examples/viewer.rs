@@ -89,9 +89,7 @@ async fn run_connection(
         pixel_format: Some(XRGB8888),
         ..ClientConfig::default()
     };
-    let mut connection = connect(stream, config)
-        .await
-        .map_err(|e| format!("{e:?}"))?;
+    let mut connection = connect(stream, config).await.map_err(|e| e.to_string())?;
     let desktop = connection.desktop().clone();
     eprintln!(
         "connected to {:?}, {}x{}",
@@ -109,11 +107,11 @@ async fn run_connection(
     connection
         .request_update(false, whole(&framebuffer))
         .await
-        .map_err(|e| format!("{e:?}"))?;
+        .map_err(|e| e.to_string())?;
     loop {
         tokio::select! {
             event = connection.next_event() => {
-                let event = event.map_err(|e| format!("{e:?}"))?;
+                let event = event.map_err(|e| e.to_string())?;
                 framebuffer.apply(&event);
                 match event {
                     Event::UpdateComplete => {
@@ -135,7 +133,7 @@ async fn run_connection(
                         connection
                             .request_update(true, whole(&framebuffer))
                             .await
-                            .map_err(|e| format!("{e:?}"))?;
+                            .map_err(|e| e.to_string())?;
                     }
                     Event::CutText(text) => {
                         let _ = updates.send(Update::CutText(text.to_string()));
@@ -153,7 +151,7 @@ async fn run_connection(
                     Command::Pointer { buttons, x, y } => connection.pointer_event(buttons, x, y).await,
                     Command::CutText(text) => connection.send_cut_text(&text).await,
                 };
-                sent.map_err(|e| format!("{e:?}"))?;
+                sent.map_err(|e| e.to_string())?;
             }
         }
     }
