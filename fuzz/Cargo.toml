@@ -12,6 +12,7 @@ libfuzzer-sys = "0.4.13"
 justvnc-proto = { path = "../crates/justvnc-proto" }
 justvnc-client = { path = "../crates/justvnc-client", features = ["jpeg"] }
 justvnc-server = { path = "../crates/justvnc-server" }
+justvnc-proxy = { path = "../crates/justvnc-proxy" }
 
 [workspace]
 members = ["."]
@@ -47,6 +48,13 @@ bench = false
 [[bin]]
 name = "server_session"
 path = "fuzz_targets/server_session.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proxy_session"
+path = "fuzz_targets/proxy_session.rs"
 test = false
 doc = false
 bench = false

@@ -8,3 +8,7 @@ repository.workspace = true
 
 [dependencies]
 des = "0.9"
+zeroize = "1.9.1"
+
+[dev-dependencies]
+zeroize = "1.9.1"

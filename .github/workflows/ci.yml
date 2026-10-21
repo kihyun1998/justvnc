@@ -21,6 +21,10 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
       - run: cargo test --workspace
+      - name: The Proxy carries no zlib or JPEG decoder
+        run: |
+          deps=$(cargo tree -p justvnc-proxy --all-features -e normal --prefix none)
+          ! echo "$deps" | grep -E '^(flate2|miniz_oxide|zune-jpeg|justvnc-decode) '
 
   wasm:
     runs-on: ubuntu-latest
@@ -85,6 +89,11 @@ jobs:
             nc -z 127.0.0.1 $port || { docker logs tigervnc; docker logs tigervnc-auth; exit 1; }
           done
       - run: cargo test -p justvnc-client --features tokio --test interop -- --ignored --test-threads=1
+        env:
+          JUSTVNC_TIGERVNC_ADDR: 127.0.0.1:5900
+          JUSTVNC_TIGERVNC_AUTH_ADDR: 127.0.0.1:5901
+          JUSTVNC_TIGERVNC_EXEC: docker exec tigervnc
+      - run: cargo test -p justvnc-proxy --features tokio --test interop -- --ignored --test-threads=1
         env:
           JUSTVNC_TIGERVNC_ADDR: 127.0.0.1:5900
           JUSTVNC_TIGERVNC_AUTH_ADDR: 127.0.0.1:5901

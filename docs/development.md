@@ -25,6 +25,14 @@ JUSTVNC_TIGERVNC_EXEC="podman exec jv-tiger" \
 podman rm -f jv-tiger jv-tiger-auth
 ```
 
+The Proxy's interop tests take the same variables and containers:
+
+```sh
+JUSTVNC_TIGERVNC_ADDR=127.0.0.1:15900 JUSTVNC_TIGERVNC_AUTH_ADDR=127.0.0.1:15901 \
+JUSTVNC_TIGERVNC_EXEC="podman exec jv-tiger" \
+  cargo test -p justvnc-proxy --features tokio --test interop -- --ignored --test-threads=1
+```
+
 The tests share one X server (its clipboard and pointer), so they run one at a time. `JUSTVNC_TIGERVNC_EXEC` is how a test runs X tools (`xsel`, `xev`, `xkbbell`) inside the container.
 
 The container takes `GEOMETRY` (default `1024x768`) and `XVNC_ARGS`; `-retro` draws a known stipple the frame test checks.
@@ -41,7 +49,7 @@ python3 fuzz/seed_corpus.py
 cd fuzz && cargo +nightly fuzz run server_messages corpus/server_messages -- -max_total_time=60 -timeout=10
 ```
 
-The targets are `server_messages` and `client_messages` (framing in each direction), `client_handshake`, `client_session` (the whole client, decoding included) and `server_session`. On Windows, run them in a Linux container; see `docs/map/fuzzing.md`. A crash is fixed and its input kept as an ordinary test in the crate it was found in.
+The targets are `server_messages` and `client_messages` (framing in each direction), `client_handshake`, `client_session` (the whole client, decoding included), `server_session` and `proxy_session` (both legs, interleaved). On Windows, run them in a Linux container; see `docs/map/fuzzing.md`. A crash is fixed and its input kept as an ordinary test in the crate it was found in.
 
 `crates/justvnc-proto/tests/raised_limits.rs` only fails on a 32-bit target. CI runs it on i686: `cargo test -p justvnc-proto --target i686-unknown-linux-gnu`.
 
@@ -60,6 +68,14 @@ cargo run -p justvnc-server --features tokio --example pattern -- 127.0.0.1:1595
 ```
 
 It serves a 640x480 gradient with a white square moving by CopyRect and prints the Viewer's input. The `r` key switches the desktop to 800x600 and back. `JUSTVNC_PASSWORD` turns on VNC authentication.
+
+## Example Proxy
+
+```sh
+JUSTVNC_TOKEN=token123 cargo run -p justvnc-proxy --features tokio --example proxy -- 127.0.0.1:15952 127.0.0.1:15900
+```
+
+Viewers connect to 127.0.0.1:15952; with `JUSTVNC_TOKEN` set they authenticate with it. `JUSTVNC_TARGET_PASSWORD` is the Target's own password.
 
 ## Recording fixtures
 

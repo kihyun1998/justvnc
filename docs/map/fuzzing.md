@@ -13,6 +13,8 @@ The fuzz targets in `fuzz/` feed arbitrary bytes to what reads a peer's bytes. T
 - **`client_messages`** frames the Viewer's messages with `ClientMessageReader`, with the same half-the-bytes check as `server_messages`.
 - **`server_session`** runs `ServerSession` against a 64x32 framebuffer whose `read` asserts that every rectangle it is asked for lies inside it. The input picks the version, the security type, whether authentication is accepted, and whether a change is reported after each chunk. It checks that an error sticks.
 
+- **`proxy_session`** feeds a `ProxySession` chunks the input marks as from the Viewer or from the Target, deciding authentication and the Target leg from a flags byte, and checks that an error sticks on both legs. Seeded with a recorder's handshake and a TigerVNC recording; two minutes ran about 20 000 inputs without a finding.
+
 ## Time bound per input
 
 CI passes `-timeout=10`. A decoder that stops making progress hangs instead of failing: with the ZRLE inflate limit removed (#7), the inflate loop never ends. The timeout turns that into a finding. That mutation, run against `client_session`, was reported as a timeout after 14 seconds.

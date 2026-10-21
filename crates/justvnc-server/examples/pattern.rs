@@ -133,9 +133,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tick: 0,
             resize_asked: false,
         };
-        let authenticate = async |challenge: &[u8; 16], response: &[u8; 16]| {
-            let password = password.as_deref().unwrap_or_default();
-            verify(password.as_bytes(), challenge, response)
+        let authenticate = |challenge, response| {
+            let password = password.clone().unwrap_or_default();
+            async move { verify(password.as_bytes(), &challenge, &response) }
         };
         let mut connection =
             match justvnc_server::tokio::accept(stream, config, &mut pattern, authenticate).await {

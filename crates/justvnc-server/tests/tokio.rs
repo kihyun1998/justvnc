@@ -56,8 +56,8 @@ fn config() -> ServerConfig {
     }
 }
 
-async fn authenticate(challenge: &[u8; 16], response: &[u8; 16]) -> bool {
-    verify(b"secret", challenge, response)
+async fn authenticate(challenge: [u8; 16], response: [u8; 16]) -> bool {
+    verify(b"secret", &challenge, &response)
 }
 
 #[tokio::test]
@@ -204,4 +204,18 @@ async fn a_serve_cancelled_while_writing_loses_no_bytes() {
     };
     assert_eq!(rectangle.rect, whole);
     assert_eq!(rectangle.pixels, Pattern::default().read(whole));
+}
+
+/// Compiles only if `accept`'s future can go to `tokio::spawn` with a closure that captures an
+/// owned password.
+#[allow(dead_code)]
+fn accept_can_be_spawned(stream: tokio::net::TcpStream, password: String) {
+    let authenticate = move |challenge, response| {
+        let password = password.clone();
+        async move { verify(password.as_bytes(), &challenge, &response) }
+    };
+    tokio::spawn(async move {
+        let mut pattern = Pattern::default();
+        let _ = justvnc_server::tokio::accept(stream, config(), &mut pattern, authenticate).await;
+    });
 }

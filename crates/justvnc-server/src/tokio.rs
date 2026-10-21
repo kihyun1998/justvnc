@@ -1,5 +1,7 @@
 //! Drives a [`ServerSession`] over a Tokio stream.
 
+use std::future::Future;
+
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{CHALLENGE_LEN, Error, Event, Framebuffer, Rect, ServerConfig, ServerSession};
@@ -35,7 +37,7 @@ struct Link<S> {
 /// Runs the server handshake over `stream`. `authenticate` decides VNC authentication from
 /// the challenge and the Viewer's response; a Viewer it rejects is told "Authentication
 /// failure", and the error is returned once that has been sent.
-pub async fn accept<S, F, A>(
+pub async fn accept<S, F, A, AF>(
     stream: S,
     config: ServerConfig,
     framebuffer: &mut F,
@@ -44,7 +46,8 @@ pub async fn accept<S, F, A>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
     F: Framebuffer,
-    A: AsyncFnMut(&[u8; CHALLENGE_LEN], &[u8; CHALLENGE_LEN]) -> bool,
+    A: FnMut([u8; CHALLENGE_LEN], [u8; CHALLENGE_LEN]) -> AF,
+    AF: Future<Output = bool>,
 {
     let mut link = Link {
         stream,
@@ -61,7 +64,7 @@ where
                     challenge,
                     response,
                 } => {
-                    if authenticate(&challenge, &response).await {
+                    if authenticate(challenge, response).await {
                         let accepted = link.session.accept(framebuffer);
                         link.flush().await?;
                         accepted.map_err(ServeError::Protocol)?;

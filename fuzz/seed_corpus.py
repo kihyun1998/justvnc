@@ -48,6 +48,18 @@ def main():
         if b[:13] == b"RFB 003.008\n\x01" and len(b) > 14:
             write("client_messages", name, b[14:])
 
+    # The Proxy: a recorded Viewer's handshake and messages, then a recorded Target's bytes.
+    for target in ("tigervnc-3.8-none-copyrect", "tigervnc-3.8-vncauth", "tigervnc-3.8-none-tight-jpeg"):
+        server = (FIXTURES / f"{target}.server.bin").read_bytes()
+        viewer = (FIXTURES / f"{target}.client.bin").read_bytes()
+        flags = 2 | (4 if "vncauth" in target else 0)
+        data = bytearray([flags])
+        for leg, b in ((0, viewer), (0x80, server)):
+            for i in range(0, len(b), 127):
+                piece = b[i:i + 127]
+                data += bytes([leg | len(piece)]) + piece
+        write("proxy_session", target, bytes(data))
+
 
 if __name__ == "__main__":
     main()

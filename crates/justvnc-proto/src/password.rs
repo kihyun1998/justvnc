@@ -1,4 +1,7 @@
-/// A VNC password. Its `Debug` output never shows the bytes.
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+/// A VNC password. Its `Debug` output never shows the bytes, and its bytes are overwritten with
+/// zeros when it is dropped.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Password(Vec<u8>);
 
@@ -11,6 +14,14 @@ impl Password {
         &self.0
     }
 }
+
+impl Drop for Password {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for Password {}
 
 impl std::fmt::Debug for Password {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

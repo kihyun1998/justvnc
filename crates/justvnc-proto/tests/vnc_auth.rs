@@ -30,3 +30,11 @@ fn rejects_the_response_tigervnc_rejected() {
 
     assert!(!verify(b"justvnc-secret", &challenge, &response));
 }
+
+#[test]
+fn a_password_is_zeroed_when_dropped() {
+    // Reading freed memory to watch the zeros is undefined behaviour, so this checks the
+    // promise zeroize makes for the type: `ZeroizeOnDrop`.
+    fn zeroized_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+    zeroized_on_drop::<justvnc_proto::Password>();
+}

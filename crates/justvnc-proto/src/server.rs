@@ -27,6 +27,9 @@ pub enum Step {
         challenge: [u8; CHALLENGE_LEN],
         response: [u8; CHALLENGE_LEN],
     },
+    /// The client chose security type None, and the handshake was made `confirming_none`.
+    /// Decide with `accept` or `reject`.
+    NoAuthentication,
     /// The client sent ClientInit. Answer with `server_init`.
     ClientInit { shared: bool },
 }
@@ -39,6 +42,8 @@ pub struct ServerHandshake {
     version: ProtocolVersion,
     security: Vec<SecurityType>,
     challenge: [u8; CHALLENGE_LEN],
+    confirm_none: bool,
+    chosen: Option<SecurityType>,
     state: State,
     received: Vec<u8>,
     transmit: Vec<u8>,
@@ -77,10 +82,20 @@ impl ServerHandshake {
             version,
             security,
             challenge,
+            confirm_none: false,
+            chosen: None,
             state: State::Version,
             received: Vec::new(),
             transmit: version.to_bytes().to_vec(),
         }
+    }
+
+    /// Makes security type None wait for the host too: it is reported as
+    /// `Step::NoAuthentication` and answered with `accept` or `reject`, as VNC authentication is.
+    /// A Proxy uses this to hold the Viewer until the Target has answered.
+    pub fn confirming_none(mut self) -> Self {
+        self.confirm_none = true;
+        self
     }
 
     /// Feeds bytes from the client. Returns a step when the host has to act; after acting, call
@@ -89,8 +104,18 @@ impl ServerHandshake {
         self.received.extend_from_slice(data);
         loop {
             let (step, consumed) = match &self.state {
-                State::Version => (None, self.read_version()?),
-                State::SecurityType => (None, self.read_security_type()?),
+                State::Version => match self.read_version()? {
+                    Some(used) if self.state == State::Deciding => {
+                        (Some(Step::NoAuthentication), Some(used))
+                    }
+                    used => (None, used),
+                },
+                State::SecurityType => match self.read_security_type()? {
+                    Some(used) if self.state == State::Deciding => {
+                        (Some(Step::NoAuthentication), Some(used))
+                    }
+                    used => (None, used),
+                },
                 State::VncAuthResponse => match self.read_vnc_auth_response() {
                     Some(step) => (Some(step), Some(CHALLENGE_LEN)),
                     None => (None, None),
@@ -116,21 +141,26 @@ impl ServerHandshake {
         }
     }
 
-    /// Accepts the response of the last `Step::Authenticate`.
+    /// Accepts the response of the last `Step::Authenticate`, or the `Step::NoAuthentication`.
     pub fn accept(&mut self) {
         if self.state == State::Deciding {
-            self.transmit.extend_from_slice(&0u32.to_be_bytes());
+            if self.has_security_result() {
+                self.transmit.extend_from_slice(&0u32.to_be_bytes());
+            }
             self.state = State::ClientInit;
         }
     }
 
-    /// Rejects the response of the last `Step::Authenticate`. Under 3.8 the client is told
-    /// `reason`. Every later `receive` returns the failure.
+    /// Rejects the response of the last `Step::Authenticate`, or the `Step::NoAuthentication`.
+    /// Under 3.8 the client is told `reason`; after None before 3.8 it is told nothing, and the
+    /// host closes the connection. Every later `receive` returns the failure.
     pub fn reject(&mut self, reason: &str) {
         if self.state != State::Deciding {
             return;
         }
-        self.transmit.extend_from_slice(&1u32.to_be_bytes());
+        if self.has_security_result() {
+            self.transmit.extend_from_slice(&1u32.to_be_bytes());
+        }
         let reason = (self.version == ProtocolVersion::V3_8).then(|| {
             self.transmit.extend_from_slice(&string(reason));
             reason.to_owned()
@@ -210,12 +240,20 @@ impl ServerHandshake {
         Ok(Some(1))
     }
 
+    /// Whether a SecurityResult follows the chosen security type: always under 3.8, and after
+    /// VNC authentication before it.
+    fn has_security_result(&self) -> bool {
+        self.version == ProtocolVersion::V3_8 || self.chosen == Some(SecurityType::VncAuth)
+    }
+
     fn after_security_type(&mut self, chosen: SecurityType) {
+        self.chosen = Some(chosen);
         self.state = match chosen {
             SecurityType::VncAuth => {
                 self.transmit.extend_from_slice(&self.challenge);
                 State::VncAuthResponse
             }
+            SecurityType::None if self.confirm_none => State::Deciding,
             SecurityType::None => {
                 // Before 3.8 there is no SecurityResult after security type None.
                 if self.version == ProtocolVersion::V3_8 {

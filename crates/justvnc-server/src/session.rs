@@ -269,6 +269,9 @@ impl ServerSession {
                         });
                         return Ok(());
                     }
+                    Some(Step::NoAuthentication) => {
+                        unreachable!("the session's handshake does not confirm None")
+                    }
                     Some(Step::ClientInit { shared }) => {
                         let format = framebuffer.pixel_format();
                         if !format.true_colour || !format.is_valid() {

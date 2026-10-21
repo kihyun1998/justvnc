@@ -98,6 +98,7 @@ fn serve(
                         handshake.reject("Authentication failure");
                     }
                 }
+                Ok(Some(Step::NoAuthentication)) => handshake.accept(),
                 Ok(Some(Step::ClientInit { shared: flag })) => {
                     handshake.server_init(rec.init.as_ref().unwrap());
                     shared = Some(flag);
@@ -274,5 +275,86 @@ fn refuses_a_security_type_it_did_not_offer() {
     assert_eq!(
         result,
         Err(HandshakeError::UnexpectedSecurityType { value: 1 })
+    );
+}
+
+/// A handshake offering None that waits for the host to confirm it, fed `client`.
+fn confirming_none(version: ProtocolVersion, client: &[u8]) -> (ServerHandshake, Option<Step>) {
+    let mut handshake = ServerHandshake::new(version, vec![SecurityType::None], [0; CHALLENGE_LEN])
+        .confirming_none();
+    handshake.take_transmit();
+    let step = handshake.receive(client).unwrap();
+    (handshake, step)
+}
+
+#[test]
+fn waits_for_the_host_before_answering_security_type_none() {
+    let (mut handshake, step) = confirming_none(ProtocolVersion::V3_8, b"RFB 003.008\n\x01\x01");
+
+    assert_eq!(step, Some(Step::NoAuthentication));
+    assert_eq!(
+        handshake.take_transmit(),
+        [1, 1],
+        "the types only, no SecurityResult yet"
+    );
+    handshake.accept();
+    assert_eq!(handshake.take_transmit(), [0, 0, 0, 0]);
+    assert_eq!(
+        handshake.receive(&[]),
+        Ok(Some(Step::ClientInit { shared: true }))
+    );
+}
+
+#[test]
+fn refuses_security_type_none_under_3_8_with_a_reason() {
+    let (mut handshake, _) = confirming_none(ProtocolVersion::V3_8, b"RFB 003.008\n\x01");
+    handshake.take_transmit();
+
+    handshake.reject("Target unreachable");
+
+    assert_eq!(
+        handshake.take_transmit(),
+        [&[0, 0, 0, 1, 0, 0, 0, 18][..], b"Target unreachable"].concat()
+    );
+    assert_eq!(
+        handshake.receive(&[]),
+        Err(HandshakeError::SecurityFailed {
+            reason: Some("Target unreachable".into())
+        })
+    );
+}
+
+#[test]
+fn refuses_security_type_none_before_3_8_by_sending_nothing() {
+    // There is no SecurityResult after None before 3.8, so a refusal is the connection closing.
+    for (version, client) in [
+        (ProtocolVersion::V3_7, &b"RFB 003.007\n\x01"[..]),
+        (ProtocolVersion::V3_3, &b"RFB 003.003\n"[..]),
+    ] {
+        let (mut handshake, step) = confirming_none(version, client);
+        assert_eq!(step, Some(Step::NoAuthentication), "{version:?}");
+        handshake.take_transmit();
+
+        handshake.reject("Target unreachable");
+
+        assert_eq!(handshake.take_transmit(), [], "{version:?}");
+        assert_eq!(
+            handshake.receive(&[]),
+            Err(HandshakeError::SecurityFailed { reason: None })
+        );
+    }
+}
+
+#[test]
+fn accepts_security_type_none_before_3_8_by_going_on_to_client_init() {
+    let (mut handshake, _) = confirming_none(ProtocolVersion::V3_7, b"RFB 003.007\n\x01\x00");
+    handshake.take_transmit();
+
+    handshake.accept();
+
+    assert_eq!(handshake.take_transmit(), []);
+    assert_eq!(
+        handshake.receive(&[]),
+        Ok(Some(Step::ClientInit { shared: false }))
     );
 }

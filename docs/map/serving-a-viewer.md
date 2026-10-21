@@ -12,7 +12,7 @@ The handshake is checked against real servers: fed the bytes the recorder sent T
 
 ## Authentication
 
-**Maintainer's call (#11):** the decision is an event, `Event::Authenticate { challenge, response }`, answered with `accept` or `reject(reason)`, rather than a closure in `ServerConfig`. The maintainer was shown both. The event lets a decision wait on something slow, such as a Proxy asking a broker whether a one-time token is valid, without blocking a thread. The tokio driver takes an async closure and handles the event inside, so a fixed-password server is still one line with `verify`.
+**Maintainer's call (#11):** the decision is an event, `Event::Authenticate { challenge, response }`, answered with `accept` or `reject(reason)`, rather than a closure in `ServerConfig`. The maintainer was shown both. The event lets a decision wait on something slow, such as a Proxy asking a broker whether a one-time token is valid, without blocking a thread. The tokio driver takes a closure returning a future and handles the event inside, so a fixed-password server is still one line with `verify`. It takes the challenge and response by value so that `accept` can run in `tokio::spawn` (`relaying-through-a-proxy.md`, "The tokio driver").
 
 The challenge comes from `getrandom` in `ServerSession::new`. `ServerSession::with_challenge` takes one instead: tests replay recordings with the challenge the recording holds, and a host with its own random source can use that one. The challenge must never repeat; a repeated one lets a recorded response be replayed.
 

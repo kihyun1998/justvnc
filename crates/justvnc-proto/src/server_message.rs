@@ -34,6 +34,9 @@ pub struct ServerMessageReader {
     limits: Limits,
     last_rect: bool,
     rectangles: Rectangles,
+    /// Bytes per pixel and per TPIXEL, and LastRect, to take from the next message on.
+    next_format: Option<(usize, usize)>,
+    next_last_rect: Option<bool>,
 }
 
 /// Where the reader is within a FramebufferUpdate.
@@ -67,6 +70,8 @@ impl ServerMessageReader {
             limits,
             last_rect: false,
             rectangles: Rectangles::None,
+            next_format: None,
+            next_last_rect: None,
         }
     }
 
@@ -77,11 +82,32 @@ impl ServerMessageReader {
         self
     }
 
+    /// Frames pixels in `format` from the next message on. A FramebufferUpdate already under way
+    /// keeps the format it started in (rfbproto has the client send SetPixelFormat only with no
+    /// update request outstanding).
+    pub fn set_pixel_format(&mut self, format: &PixelFormat) {
+        self.next_format = Some((format.bytes_per_pixel(), tight::tpixel_len(format)));
+    }
+
+    /// Accepts the LastRect pseudo-encoding or not, from the next message on, as the client's
+    /// latest SetEncodings says.
+    pub fn set_last_rect(&mut self, last_rect: bool) {
+        self.next_last_rect = Some(last_rect);
+    }
+
     /// Frames the next piece at the start of `buf`. Returns it and how many bytes of `buf` it
     /// used, or `None` when `buf` does not hold all of it yet.
     pub fn next(&mut self, buf: &[u8]) -> Result<Option<(Framed, usize)>, MessageError> {
         match self.rectangles {
-            Rectangles::None => self.read_message(buf),
+            Rectangles::None => {
+                if let Some((bytes_per_pixel, tpixel)) = self.next_format.take() {
+                    (self.bytes_per_pixel, self.tpixel) = (bytes_per_pixel, tpixel);
+                }
+                if let Some(last_rect) = self.next_last_rect.take() {
+                    self.last_rect = last_rect;
+                }
+                self.read_message(buf)
+            }
             Rectangles::Left(0) => {
                 self.rectangles = Rectangles::None;
                 Ok(Some((Framed::UpdateEnd, 0)))
