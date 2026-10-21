@@ -2,7 +2,8 @@
 //!
 //! Input: a flags byte, a chunk size (0: all at once), then the Viewer's bytes. Flags: bits 0
 //! and 1, the version offered (3.3, 3.7, 3.8); bit 2, VNC authentication instead of None;
-//! bit 3, authentication accepted; bit 4, a change reported after each chunk.
+//! bit 3, authentication accepted; bit 4, a change reported after each chunk; bit 5, a move;
+//! bit 6, the framebuffer switching between two sizes.
 #![no_main]
 
 use justvnc_proto::server::SecurityType;
@@ -23,11 +24,13 @@ const XRGB: PixelFormat = PixelFormat {
     blue_shift: 0,
 };
 
-struct Pattern;
+struct Pattern {
+    big: bool,
+}
 
 impl Framebuffer for Pattern {
     fn size(&self) -> (u16, u16) {
-        (64, 32)
+        if self.big { (80, 48) } else { (64, 32) }
     }
 
     fn pixel_format(&self) -> PixelFormat {
@@ -35,8 +38,15 @@ impl Framebuffer for Pattern {
     }
 
     fn read(&self, rect: Rect) -> Vec<u8> {
-        assert!(u32::from(rect.x) + u32::from(rect.width) <= 64, "{rect:?}");
-        assert!(u32::from(rect.y) + u32::from(rect.height) <= 32, "{rect:?}");
+        let (width, height) = self.size();
+        assert!(
+            u32::from(rect.x) + u32::from(rect.width) <= u32::from(width),
+            "{rect:?}"
+        );
+        assert!(
+            u32::from(rect.y) + u32::from(rect.height) <= u32::from(height),
+            "{rect:?}"
+        );
         vec![0x80; usize::from(rect.width) * usize::from(rect.height) * 4]
     }
 }
@@ -63,7 +73,7 @@ fuzz_target!(|data: &[u8]| {
         },
         [0x11; 16],
     );
-    let mut pattern = Pattern;
+    let mut pattern = Pattern { big: false };
     let size = if chunk == 0 {
         viewer.len().max(1)
     } else {
@@ -89,6 +99,20 @@ fuzz_target!(|data: &[u8]| {
                 height: at % 7 + 1,
             };
             session.damage(rect, &pattern);
+        }
+        if flags & 32 != 0 {
+            let at = i as u16;
+            let rect = Rect {
+                x: at % 50,
+                y: at % 20,
+                width: at % 9 + 1,
+                height: at % 5 + 1,
+            };
+            session.copy(rect, at % 61, at % 29, &pattern);
+        }
+        if flags & 64 != 0 && i % 3 == 2 {
+            pattern.big = !pattern.big;
+            result = result.and(session.resize(&pattern));
         }
         while session.poll_transmit().is_some() {}
         if result.is_err() {

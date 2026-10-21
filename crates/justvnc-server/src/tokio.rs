@@ -105,6 +105,32 @@ where
     }
 }
 
+impl<S> Connection<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    /// Tells the session that the pixels now in `rect` were moved there from (`src_x`,
+    /// `src_y`); see [`ServerSession::copy`].
+    pub async fn copy<F: Framebuffer>(
+        &mut self,
+        rect: Rect,
+        src_x: u16,
+        src_y: u16,
+        framebuffer: &F,
+    ) -> Result<(), ServeError> {
+        self.link.session.copy(rect, src_x, src_y, framebuffer);
+        self.link.flush().await
+    }
+
+    /// Tells the session that the framebuffer may have changed size; see
+    /// [`ServerSession::resize`].
+    pub async fn resize<F: Framebuffer>(&mut self, framebuffer: &F) -> Result<(), ServeError> {
+        let resized = self.link.session.resize(framebuffer);
+        self.link.flush().await?;
+        resized.map_err(ServeError::Protocol)
+    }
+}
+
 impl<S> Connection<S> {
     /// The Viewer's ClientInit shared-flag.
     pub fn shared(&self) -> bool {

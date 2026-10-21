@@ -43,6 +43,7 @@ def main():
         for chunk in (0, 7):
             write("server_session", f"{name}-{chunk}", bytes([flags, chunk]) + b)
             write("server_session", f"{name}-{chunk}-damage", bytes([flags | 16, chunk]) + b)
+            write("server_session", f"{name}-{chunk}-moves", bytes([flags | 16 | 32 | 64, chunk]) + b)
         # After a 3.8 None handshake (version, security type, ClientInit) come the messages.
         if b[:13] == b"RFB 003.008\n\x01" and len(b) > 14:
             write("client_messages", name, b[14:])

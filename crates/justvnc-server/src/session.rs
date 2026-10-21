@@ -9,6 +9,7 @@ use justvnc_proto::{
 };
 
 use crate::Framebuffer;
+use crate::convert::convert;
 use crate::region::{Region, clip};
 
 /// How a server session behaves.
@@ -56,9 +57,11 @@ pub enum Event {
 pub enum Error {
     Handshake(HandshakeError),
     Message(MessageError),
-    /// A pixel format this session cannot serve: not valid, or (from the Viewer) not the
-    /// framebuffer's own.
+    /// A pixel format this session cannot serve: not valid, or colour-mapped.
     UnsupportedPixelFormat(PixelFormat),
+    /// The framebuffer changed size and the Viewer did not offer DesktopSize, so it cannot
+    /// follow.
+    ViewerCannotResize,
 }
 
 /// The server role as a state machine: bytes in, input to the [`Framebuffer`] and bytes to send
@@ -75,6 +78,17 @@ pub struct ServerSession {
     pending: Option<Rect>,
     /// Changes not yet sent.
     damaged: Region,
+    /// A move not yet sent as CopyRect: the destination and the source's top left.
+    copy: Option<(Rect, u16, u16)>,
+    /// The size the Viewer was last told.
+    size: (u16, u16),
+    /// The size changed and the Viewer has not been told yet.
+    resized: bool,
+    /// The format the Viewer asked for, if it asked.
+    format: Option<PixelFormat>,
+    /// Whether the Viewer offered CopyRect, and DesktopSize.
+    copy_rect: bool,
+    desktop_size: bool,
 }
 
 #[derive(Debug)]
@@ -118,6 +132,12 @@ impl ServerSession {
             failed: None,
             pending: None,
             damaged: Region::default(),
+            copy: None,
+            size: (0, 0),
+            resized: false,
+            format: None,
+            copy_rect: false,
+            desktop_size: false,
         }
     }
 
@@ -159,20 +179,65 @@ impl ServerSession {
     /// answered with the part of the change inside it; otherwise the change is kept for the
     /// next one.
     pub fn damage<F: Framebuffer>(&mut self, rect: Rect, framebuffer: &F) {
-        if self.failed.is_some() || matches!(self.phase, Phase::Handshake(_)) {
+        if !self.serving() {
             return;
         }
-        let Some(rect) = clip(rect, framebuffer.size()) else {
+        if let Some(rect) = clip(rect, framebuffer.size()) {
+            self.damaged.add(rect);
+        }
+        self.answer_waiting(framebuffer);
+    }
+
+    /// Tells the session that the pixels now in `rect` were moved there from (`src_x`,
+    /// `src_y`), and the rest of the framebuffer is as it was. It is sent as CopyRect when the
+    /// Viewer offered it and already has those pixels; otherwise as a change to `rect`.
+    pub fn copy<F: Framebuffer>(&mut self, rect: Rect, src_x: u16, src_y: u16, framebuffer: &F) {
+        if !self.serving() {
             return;
+        }
+        let source = Rect {
+            x: src_x,
+            y: src_y,
+            ..rect
         };
-        self.damaged.add(rect);
-        if let Some(area) = self.pending {
-            let changed = self.damaged.take(area);
-            if !changed.is_empty() {
-                self.pending = None;
-                self.send_update(&changed, framebuffer);
-            }
+        let size = framebuffer.size();
+        let inside = |r: Rect| clip(r, size) == Some(r);
+        let copyable = self.copy_rect
+            && self.copy.is_none()
+            && !self.resized
+            && inside(rect)
+            && inside(source)
+            && !self.damaged.intersects(source);
+        if copyable {
+            self.copy = Some((rect, src_x, src_y));
+            self.answer_waiting(framebuffer);
+        } else {
+            self.damage(rect, framebuffer);
         }
+    }
+
+    /// Tells the session that the framebuffer may have changed size. A Viewer that offered
+    /// DesktopSize is told at its next request and then sent the whole framebuffer; for one
+    /// that did not, the session ends with [`Error::ViewerCannotResize`].
+    pub fn resize<F: Framebuffer>(&mut self, framebuffer: &F) -> Result<(), Error> {
+        if let Some(error) = &self.failed {
+            return Err(error.clone());
+        }
+        if !self.serving() || framebuffer.size() == self.size {
+            return Ok(());
+        }
+        if !self.desktop_size {
+            self.failed = Some(Error::ViewerCannotResize);
+            return Err(Error::ViewerCannotResize);
+        }
+        self.size = framebuffer.size();
+        self.resized = true;
+        self.damaged = Region::default();
+        self.copy = None;
+        if self.pending.take().is_some() {
+            self.send_resize();
+        }
+        Ok(())
     }
 
     /// Next bytes to send to the Viewer, if any.
@@ -210,6 +275,7 @@ impl ServerSession {
                             return Err(Error::UnsupportedPixelFormat(format));
                         }
                         let (width, height) = framebuffer.size();
+                        self.size = (width, height);
                         handshake.server_init(&ServerInit {
                             width,
                             height,
@@ -264,26 +330,27 @@ impl ServerSession {
     ) -> Result<(), Error> {
         match message {
             ClientMessage::SetPixelFormat(format) => {
-                if !format.true_colour || !format.is_valid() || format != framebuffer.pixel_format()
-                {
+                if !format.true_colour || !format.is_valid() {
                     return Err(Error::UnsupportedPixelFormat(format));
                 }
+                self.format = Some(format);
             }
-            ClientMessage::SetEncodings(_) => {}
+            ClientMessage::SetEncodings(encodings) => {
+                self.copy_rect = encodings.contains(&encoding::COPY_RECT);
+                self.desktop_size = encodings.contains(&encoding::DESKTOP_SIZE);
+            }
             ClientMessage::FramebufferUpdateRequest { incremental, rect } => {
                 let area = clip(rect, framebuffer.size());
-                if !incremental {
+                if self.resized {
+                    self.send_resize();
+                } else if !incremental {
                     if let Some(area) = area {
                         self.damaged.take(area);
                     }
                     self.send_update(&Vec::from_iter(area), framebuffer);
                 } else if let Some(area) = area {
-                    let changed = self.damaged.take(area);
-                    if changed.is_empty() {
-                        self.pending = Some(area);
-                    } else {
-                        self.send_update(&changed, framebuffer);
-                    }
+                    self.pending = Some(area);
+                    self.answer_waiting(framebuffer);
                 }
             }
             ClientMessage::KeyEvent { down, keysym } => framebuffer.key_event(down, keysym),
@@ -295,16 +362,62 @@ impl ServerSession {
         Ok(())
     }
 
-    /// A FramebufferUpdate holding `rects` as Raw.
+    fn serving(&self) -> bool {
+        self.failed.is_none() && matches!(self.phase, Phase::Messages { .. })
+    }
+
+    /// Answers a waiting incremental request if there is something to send inside it.
+    fn answer_waiting<F: Framebuffer>(&mut self, framebuffer: &F) {
+        let Some(area) = self.pending else {
+            return;
+        };
+        let changed = self.damaged.take(area);
+        if !changed.is_empty() || self.copy.is_some() {
+            self.pending = None;
+            self.send_update(&changed, framebuffer);
+        }
+    }
+
+    /// A FramebufferUpdate holding only the DesktopSize pseudo-rectangle. Everything is then
+    /// changed for the Viewer, which may have discarded its framebuffer.
+    fn send_resize(&mut self) {
+        let (width, height) = self.size;
+        let whole = Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        self.transmit
+            .extend_from_slice(&server_message::framebuffer_update(1));
+        self.transmit
+            .extend_from_slice(&server_message::rectangle(whole, encoding::DESKTOP_SIZE));
+        self.resized = false;
+        if width > 0 && height > 0 {
+            self.damaged.add(whole);
+        }
+    }
+
+    /// A FramebufferUpdate holding the move waiting to be sent, as CopyRect, then `rects` as
+    /// Raw in the Viewer's format.
     fn send_update<F: Framebuffer>(&mut self, rects: &[Rect], framebuffer: &F) {
-        let count = u16::try_from(rects.len()).expect("a region holds few rectangles");
+        let copy = self.copy.take();
+        let count = u16::try_from(rects.len() + usize::from(copy.is_some()))
+            .expect("a region holds few rectangles");
         self.transmit
             .extend_from_slice(&server_message::framebuffer_update(count));
+        if let Some((rect, src_x, src_y)) = copy {
+            self.transmit
+                .extend_from_slice(&server_message::rectangle(rect, encoding::COPY_RECT));
+            self.transmit.extend_from_slice(&src_x.to_be_bytes());
+            self.transmit.extend_from_slice(&src_y.to_be_bytes());
+        }
+        let native = framebuffer.pixel_format();
+        let format = self.format.unwrap_or(native);
         for &rect in rects {
             let pixels = framebuffer.read(rect);
-            let expected = usize::from(rect.width)
-                * usize::from(rect.height)
-                * framebuffer.pixel_format().bytes_per_pixel();
+            let expected =
+                usize::from(rect.width) * usize::from(rect.height) * native.bytes_per_pixel();
             assert_eq!(
                 pixels.len(),
                 expected,
@@ -312,7 +425,8 @@ impl ServerSession {
             );
             self.transmit
                 .extend_from_slice(&server_message::rectangle(rect, encoding::RAW));
-            self.transmit.extend_from_slice(&pixels);
+            self.transmit
+                .extend_from_slice(&convert(&pixels, &native, &format));
         }
     }
 }

@@ -2,6 +2,9 @@
 //!
 //! Usage: cargo run -p justvnc-server --features tokio --example pattern -- [ADDRESS]
 //! (default 127.0.0.1:15950). `JUSTVNC_PASSWORD` turns on VNC authentication.
+//!
+//! The white square moves by CopyRect where the Viewer offers it. The `r` key switches the
+//! desktop between 640x480 and 800x600.
 
 use std::time::Duration;
 
@@ -9,10 +12,10 @@ use justvnc_server::tokio::ServeError;
 use justvnc_server::{CutText, Framebuffer, PixelFormat, Rect, SecurityType, ServerConfig, verify};
 use tokio::net::TcpListener;
 
-const WIDTH: u16 = 640;
-const HEIGHT: u16 = 480;
-/// The moving bar's size.
+const SIZES: [(u16, u16); 2] = [(640, 480), (800, 600)];
+/// The moving square's size, and how far it moves each tick.
 const BAR: u16 = 40;
+const STEP: u16 = 8;
 
 const XRGB: PixelFormat = PixelFormat {
     bits_per_pixel: 32,
@@ -27,16 +30,27 @@ const XRGB: PixelFormat = PixelFormat {
     blue_shift: 0,
 };
 
-/// A colour gradient with a white bar that moves one step per tick.
+/// A colour gradient with a white square that moves one step per tick.
 struct Pattern {
-    tick: u16,
+    size: usize,
+    tick: u32,
+    resize_asked: bool,
 }
 
 impl Pattern {
+    fn width(&self) -> u16 {
+        SIZES[self.size].0
+    }
+
+    fn height(&self) -> u16 {
+        SIZES[self.size].1
+    }
+
     fn bar(&self) -> Rect {
+        let travel = u32::from((self.width() - BAR) / STEP);
         Rect {
-            x: (self.tick * 8) % (WIDTH - BAR),
-            y: HEIGHT / 2 - BAR / 2,
+            x: (self.tick % travel) as u16 * STEP,
+            y: self.height() / 2 - BAR / 2,
             width: BAR,
             height: BAR,
         }
@@ -45,7 +59,7 @@ impl Pattern {
 
 impl Framebuffer for Pattern {
     fn size(&self) -> (u16, u16) {
-        (WIDTH, HEIGHT)
+        (self.width(), self.height())
     }
 
     fn pixel_format(&self) -> PixelFormat {
@@ -54,6 +68,7 @@ impl Framebuffer for Pattern {
 
     fn read(&self, rect: Rect) -> Vec<u8> {
         let bar = self.bar();
+        let (width, height) = (u32::from(self.width()), u32::from(self.height()));
         let mut out = Vec::with_capacity(usize::from(rect.width) * usize::from(rect.height) * 4);
         for y in rect.y..rect.y + rect.height {
             for x in rect.x..rect.x + rect.width {
@@ -62,10 +77,11 @@ impl Framebuffer for Pattern {
                 let pixel = if in_bar {
                     [0xff, 0xff, 0xff, 0]
                 } else {
+                    let (x, y) = (u32::from(x), u32::from(y));
                     [
                         (x + y) as u8,
-                        (u32::from(y) * 255 / u32::from(HEIGHT)) as u8,
-                        (u32::from(x) * 255 / u32::from(WIDTH)) as u8,
+                        (y * 255 / height) as u8,
+                        (x * 255 / width) as u8,
                         0,
                     ]
                 };
@@ -77,6 +93,9 @@ impl Framebuffer for Pattern {
 
     fn key_event(&mut self, down: bool, keysym: u32) {
         println!("key {} {keysym:#x}", if down { "down" } else { "up" });
+        if down && keysym == u32::from(b'r') {
+            self.resize_asked = true;
+        }
     }
 
     fn pointer_event(&mut self, buttons: u8, x: u16, y: u16) {
@@ -109,7 +128,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }],
             ..ServerConfig::default()
         };
-        let mut pattern = Pattern { tick: 0 };
+        let mut pattern = Pattern {
+            size: 0,
+            tick: 0,
+            resize_asked: false,
+        };
         let authenticate = async |challenge: &[u8; 16], response: &[u8; 16]| {
             let password = password.as_deref().unwrap_or_default();
             verify(password.as_bytes(), challenge, response)
@@ -129,17 +152,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Err(e) = served {
                         break e;
                     }
+                    if std::mem::take(&mut pattern.resize_asked) {
+                        pattern.size = 1 - pattern.size;
+                        println!("resized to {:?}", pattern.size());
+                        if let Err(e) = connection.resize(&pattern).await {
+                            break e;
+                        }
+                    }
                 }
                 _ = ticks.tick() => {
                     let before = pattern.bar();
                     pattern.tick += 1;
                     let after = pattern.bar();
-                    let moved = Rect {
-                        x: before.x.min(after.x),
-                        width: before.x.max(after.x) + BAR - before.x.min(after.x),
-                        ..before
+                    let sent = if after.x > before.x {
+                        // The square moved right: copy it, then redraw the strip it left.
+                        let strip = Rect { width: after.x - before.x, ..before };
+                        match connection.copy(after, before.x, before.y, &pattern).await {
+                            Ok(()) => connection.damage(strip, &pattern).await,
+                            e => e,
+                        }
+                    } else {
+                        // It wrapped round to the left edge.
+                        match connection.damage(before, &pattern).await {
+                            Ok(()) => connection.damage(after, &pattern).await,
+                            e => e,
+                        }
                     };
-                    if let Err(e) = connection.damage(moved, &pattern).await {
+                    if let Err(e) = sent {
                         break e;
                     }
                 }

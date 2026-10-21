@@ -20,6 +20,11 @@ impl Region {
         }
     }
 
+    /// Whether any of it lies inside `rect`.
+    pub(crate) fn intersects(&self, rect: Rect) -> bool {
+        self.0.iter().any(|r| intersect(*r, rect).is_some())
+    }
+
     /// Removes and returns the parts inside `area`.
     pub(crate) fn take(&mut self, area: Rect) -> Vec<Rect> {
         let inside = self.0.iter().filter_map(|r| intersect(*r, area)).collect();

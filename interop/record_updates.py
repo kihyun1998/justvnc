@@ -1,7 +1,7 @@
 """Records framebuffer updates from a real VNC server while X commands run inside its container.
 
 Usage: python record_updates.py HOST PORT OUT_PREFIX --exec "podman exec NAME"
-           [--encodings N,N,...] STEP [STEP ...]
+           [--encodings N,N,...] [--pixel-format F] STEP [STEP ...]
 
 STEP is one of:
   full         send a full FramebufferUpdateRequest for the whole screen and read the update
@@ -12,7 +12,9 @@ The client side is scripted: an RFB 3.8 handshake with security type None, Clien
 shared flag set, and SetEncodings: by default (DesktopSize, LastRect, CopyRect, Tight, ZRLE, Raw), the list justvnc's
 client session sends, or --encodings. Raw, CopyRect, ZRLE, Tight, DesktopSize and LastRect
 rectangles are read, ZRLE and Tight only by their sizes and lengths (Tight with 3-byte TPIXELs);
-any other encoding stops the script.
+any other encoding stops the script. --pixel-format sends SetPixelFormat before SetEncodings;
+F is bits-per-pixel,depth,big-endian,red-max,green-max,blue-max,red-shift,green-shift,blue-shift
+(true colour), e.g. 16,16,0,31,63,31,11,5,0.
 Server bytes go to OUT_PREFIX.server.bin and client bytes to OUT_PREFIX.client.bin.
 """
 import argparse
@@ -61,6 +63,7 @@ def main():
     p.add_argument("out_prefix")
     p.add_argument("--exec", required=True, dest="exec_prefix")
     p.add_argument("--encodings", default="-223,-224,1,7,16,0")
+    p.add_argument("--pixel-format")
     p.add_argument("steps", nargs="+")
     a = p.parse_args()
 
@@ -91,6 +94,10 @@ def main():
     read(int.from_bytes(header[20:24], "big"))
     width, height = struct.unpack(">HH", header[:4])
     bytes_per_pixel = header[4] // 8
+    if a.pixel_format:
+        bpp, depth, be, rmax, gmax, bmax, rs, gs, bs = (int(v) for v in a.pixel_format.split(","))
+        send(struct.pack(">B3xBBBBHHHBBB3x", 0, bpp, depth, be, 1, rmax, gmax, bmax, rs, gs, bs))
+        bytes_per_pixel = bpp // 8
     encodings = [int(e) for e in a.encodings.split(",")]
     send(struct.pack(f">BBH{len(encodings)}i", 2, 0, len(encodings), *encodings))
 

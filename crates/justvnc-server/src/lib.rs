@@ -1,5 +1,6 @@
 //! RFB server role.
 
+mod convert;
 mod framebuffer;
 mod region;
 mod session;

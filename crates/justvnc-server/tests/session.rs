@@ -1,7 +1,9 @@
 //! The server role, with justvnc's client role on the other end. Both are sans-IO, so the test
 //! moves their bytes between them.
 
-use justvnc_client::{ClientConfig, ClientSession, Event as ClientEvent};
+mod common;
+
+use justvnc_client::{ClientConfig, Event as ClientEvent};
 use justvnc_proto::client_message;
 use justvnc_proto::vnc_auth;
 use justvnc_server::{
@@ -71,73 +73,7 @@ impl Framebuffer for Pattern {
     }
 }
 
-/// A server session and a client session joined back to back.
-struct Pair {
-    server: ServerSession,
-    client: ClientSession,
-    pattern: Pattern,
-    password: Option<&'static [u8]>,
-    server_error: Option<Error>,
-    client_error: Option<justvnc_client::Error>,
-    server_events: Vec<Event>,
-}
-
-impl Pair {
-    fn new(server: ServerConfig, client: ClientConfig) -> Self {
-        Self {
-            server: ServerSession::with_challenge(server, [0x5a; 16]),
-            client: ClientSession::new(client),
-            pattern: Pattern::default(),
-            password: None,
-            server_error: None,
-            client_error: None,
-            server_events: Vec::new(),
-        }
-    }
-
-    /// Moves bytes both ways until neither side has anything to send, deciding VNC
-    /// authentication with `self.password`.
-    fn pump(&mut self) {
-        loop {
-            let mut moved = false;
-            while let Some(bytes) = self.server.poll_transmit() {
-                moved = true;
-                if self.client_error.is_none() {
-                    self.client_error = self.client.receive(&bytes).err();
-                }
-            }
-            while let Some(bytes) = self.client.poll_transmit() {
-                moved = true;
-                if self.server_error.is_none() {
-                    self.server_error = self.server.receive(&bytes, &mut self.pattern).err();
-                }
-            }
-            while let Some(event) = self.server.poll_event() {
-                moved = true;
-                if let Event::Authenticate {
-                    challenge,
-                    response,
-                } = &event
-                {
-                    let password = self.password.unwrap_or_default();
-                    if vnc_auth::verify(password, challenge, response) {
-                        self.server_error = self.server.accept(&mut self.pattern).err();
-                    } else {
-                        self.server.reject("Authentication failure");
-                    }
-                }
-                self.server_events.push(event);
-            }
-            if !moved {
-                return;
-            }
-        }
-    }
-
-    fn client_events(&mut self) -> Vec<ClientEvent> {
-        std::iter::from_fn(|| self.client.poll_event()).collect()
-    }
-}
+type Pair = common::Pair<Pattern>;
 
 fn whole() -> Rect {
     Rect {
@@ -502,29 +438,6 @@ fn refuses_a_pixel_format_that_is_not_valid() {
     let result = server.receive(&client_message::set_pixel_format(&invalid), &mut pattern);
 
     assert_eq!(result, Err(Error::UnsupportedPixelFormat(invalid)));
-}
-
-#[test]
-fn accepts_its_own_pixel_format_and_refuses_others_for_now() {
-    let (mut server, mut pattern) = connected_server();
-    server
-        .receive(&client_message::set_pixel_format(&XRGB), &mut pattern)
-        .unwrap();
-    let rgb565 = PixelFormat {
-        bits_per_pixel: 16,
-        depth: 16,
-        red_max: 31,
-        green_max: 63,
-        blue_max: 31,
-        red_shift: 11,
-        green_shift: 5,
-        blue_shift: 0,
-        ..XRGB
-    };
-
-    let result = server.receive(&client_message::set_pixel_format(&rgb565), &mut pattern);
-
-    assert_eq!(result, Err(Error::UnsupportedPixelFormat(rgb565)));
 }
 
 #[test]

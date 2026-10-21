@@ -26,11 +26,32 @@ Changes not yet sent are kept as non-overlapping rectangles (`region.rs`). A req
 
 A request reaching past the framebuffer is clipped to it. A non-incremental request with nothing inside the framebuffer is answered with an update of no rectangles, so a Viewer waiting for an answer gets one.
 
-Updates are Raw only. CopyRect, DesktopSize and other encodings are #12.
+Pixels go as Raw. Moves go as CopyRect and size changes as DesktopSize, below; no compressed encoding is sent.
+
+## Moves (CopyRect)
+
+The host reports a move with `copy(rect, src_x, src_y)`: the pixels now in `rect` came from (`src_x`, `src_y`). It is sent as CopyRect only when the Viewer can copy it correctly, and otherwise as a change to `rect`:
+
+- the Viewer offered CopyRect (1) in SetEncodings;
+- both rectangles lie inside the framebuffer;
+- no change inside the source is waiting to be sent, because the Viewer copies from what it has, and it does not have that change yet;
+- no other move is waiting. One waiting move at a time keeps the order simple; a second becomes a change.
+
+A waiting move goes first in the next update, before any Raw rectangle, so Raw pixels sent for the same area land on top of it. A change reported after the move, even one inside its source, is fine for the same reason: the Viewer copies before it draws.
+
+## Size changes (DesktopSize)
+
+The host reports a possible size change with `resize`. Nothing is sent unless the size really changed: rfbproto warns that some clients loop if told of a resize that did not happen. The DesktopSize pseudo-rectangle goes alone in an update that answers the Viewer's next request (or one already waiting), then the whole framebuffer counts as changed, because rfbproto says the Viewer may discard its framebuffer on a resize. Waiting changes and a waiting move are dropped at the resize.
+
+**Maintainer's call (#12):** a Viewer that did not offer DesktopSize (-223) cannot follow a resize, so `resize` ends the session with `Error::ViewerCannotResize`. The maintainer was shown the alternative of carrying on at the old size, clipped, with the grown part never shown.
 
 ## Pixel format
 
-A SetPixelFormat that is not valid (`PixelFormat::is_valid`, `framebuffer-updates.md`) or not true colour ends the session with `UnsupportedPixelFormat`. Until #12 converts pixels, so does any format other than the framebuffer's own. That is a default chosen while writing #11, not a maintainer's call. It does not affect TightVNC Viewer 2.8.85, which sends no SetPixelFormat and takes the server's format.
+A SetPixelFormat that is not valid (`PixelFormat::is_valid`, `framebuffer-updates.md`) or is colour-mapped ends the session with `UnsupportedPixelFormat`. Any other is served: `convert.rs` rewrites the framebuffer's pixels into it.
+
+Each colour is scaled as `(c * to_max + (from_max + 1) / 2) / from_max`, which rounds half up. rfbproto does not say how to scale. This is what TigerVNC 1.13.1 does: asked for RGB565, RGB555, BGR233 and big-endian 32-bit by `interop/record_updates.py --pixel-format` while showing `interop/make_ramp_image.py`'s ramps, every one of its 256 values per colour matched `(v * max + 128) / 255`. The usual rounding, `+ 127`, differs from it at 37 (to 5 bits) and 91 (to 3 bits). The recordings are `crates/justvnc-server/tests/fixtures/tigervnc-ramp-*.server.bin`, and the server must send exactly their bytes.
+
+TightVNC Viewer 2.8.85 sends no SetPixelFormat at all with its default settings and takes the server's format.
 
 ## Untrusted lengths
 
@@ -47,3 +68,5 @@ ClientCutText is checked against `max_cut_text_length` before its bytes are wait
 - ClientInit asking to share.
 - SetEncodings once: Tight (7), CopyRect (1), ZRLE (16), RRE (5), ... in the order 7, 1, 16, 5, 2, 0, -26, -223, -224, -232, -239. No SetPixelFormat.
 - One full request, then 1954 incremental ones, 918 pointer events, 28 key events, one ClientCutText (`"\nThe \"close"`).
+
+`tightvnc-viewer-3.8-none-8bit.viewer.bin` is the same Viewer with its 8-bit colour option, connected to the `pattern` example without a password while the maintainer pressed `r` three times. It sent SetPixelFormat for BGR233 (8 bpp, maxes 7, 7, 3, shifts 0, 3, 6), the format TigerVNC's ramp was recorded in, and the same SetEncodings. Live, the server's side framed to its last byte at one byte a pixel: 605 Raw rectangles, 564 CopyRect and 3 DesktopSize. The maintainer saw the coarse 8-bit gradient, the square moving unbroken, and the desktop switch size. The replay test checks that the Viewer's bytes are served in BGR233; it cannot check the moves and resizes, which came from the example, not from the Viewer.

@@ -59,7 +59,7 @@ cargo run -p justvnc-client --features tokio --example viewer -- 127.0.0.1:15900
 cargo run -p justvnc-server --features tokio --example pattern -- 127.0.0.1:15950
 ```
 
-It serves a 640x480 gradient with a moving white square and prints the Viewer's input. `JUSTVNC_PASSWORD` turns on VNC authentication.
+It serves a 640x480 gradient with a white square moving by CopyRect and prints the Viewer's input. The `r` key switches the desktop to 800x600 and back. `JUSTVNC_PASSWORD` turns on VNC authentication.
 
 ## Recording fixtures
 
@@ -124,6 +124,18 @@ python interop/tight_jpeg_reference.py <prefix>.server.bin <prefix>.libjpeg.bin 
 The JPEG tests run only with the feature: `cargo test --workspace --all-features`. CI also runs `cargo test --workspace` to cover the session without it.
 
 Name a fixture after the server that produced it, and note where it came from in the map note for that area.
+
+The pixel format fixtures are TigerVNC showing colour ramps, recorded once per format with `--pixel-format` (bits-per-pixel, depth, big-endian, then the maxes and shifts):
+
+```sh
+python interop/make_ramp_image.py ramp.xwd
+podman run -d --rm --name jv-ramp -e GEOMETRY=256x16 -p 15960:5900 justvnc-tigervnc
+podman cp ramp.xwd jv-ramp:/tmp/ramp.xwd
+python interop/record_updates.py 127.0.0.1 15960 <prefix>-xrgb --exec "podman exec jv-ramp" --encodings 0 \
+  "run:(xwud -in /tmp/ramp.xwd -geometry +0+0 &); sleep 1.5" full
+python interop/record_updates.py 127.0.0.1 15960 <prefix>-rgb565 --exec "podman exec jv-ramp" --encodings 0 \
+  --pixel-format=16,16,0,31,63,31,11,5,0 full
+```
 
 To record a real Viewer, put `interop/record_relay.py` between it and a server. It writes `<prefix>.viewer.bin` and `<prefix>.server.bin` when the Viewer disconnects:
 
