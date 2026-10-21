@@ -177,3 +177,10 @@ fn frames_a_set_encodings_longer_than_255() {
 
     assert_eq!(messages, [ClientMessage::SetEncodings(encodings)]);
 }
+
+#[test]
+fn encodes_each_message_as_the_reader_frames_it() {
+    for (message, bytes) in every_message() {
+        assert_eq!(client_message::encode(&message), bytes, "{message:?}");
+    }
+}

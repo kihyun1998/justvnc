@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use justvnc_client::{ClientConfig, CutText, Event, Framebuffer, Rect};
 use justvnc_proxy::tokio::serve;
-use justvnc_proxy::{Password, ProxyConfig, SecurityType, verify};
+use justvnc_proxy::{ForwardAll, Password, ProxyConfig, SecurityType, verify};
 use tokio::net::{TcpListener, TcpStream};
 
 fn env(name: &str) -> String {
@@ -32,7 +32,7 @@ async fn proxy_to(target: String, password: Option<&'static str>) -> std::net::S
                 .map_err(|e| e.to_string())?;
             Ok((stream, password.map(Password::new)))
         };
-        let _ = serve(stream, config, authenticate, connect).await;
+        let _ = serve(stream, config, ForwardAll, authenticate, connect).await;
     });
     address
 }

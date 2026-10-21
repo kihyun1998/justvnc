@@ -3,12 +3,14 @@ use std::collections::VecDeque;
 use justvnc_proto::client::ClientHandshake;
 use justvnc_proto::client_message::{self, ClientMessage, ClientMessageReader};
 use justvnc_proto::server::{SecurityType, ServerHandshake, Step};
-use justvnc_proto::server_message::ServerMessageReader;
+use justvnc_proto::server_message::{self, Framed, ServerMessageReader};
 use justvnc_proto::vnc_auth::CHALLENGE_LEN;
 use justvnc_proto::{
     HandshakeError, Limits, MessageError, Password, PixelFormat, ProtocolVersion, ServerInit,
     encoding,
 };
+
+use crate::tap::{ForwardAll, Tap, TargetMessage, UpdateVerdict, Verdict};
 
 /// How a Proxy session behaves.
 #[derive(Debug, Clone)]
@@ -45,12 +47,31 @@ pub enum Event {
         challenge: [u8; CHALLENGE_LEN],
         response: [u8; CHALLENGE_LEN],
     },
-    /// The Viewer is through security. Connect to the Target and call
+    /// The Viewer passed security: its response was accepted, or it chose None.
+    ViewerAuthenticated,
+    /// Follows [`Event::ViewerAuthenticated`]. Connect to the Target and call
     /// [`ProxySession::connect_target`], or [`ProxySession::refuse`] it.
     TargetNeeded,
-    /// Both handshakes completed; messages are relayed from now on. `desktop` is the Target's
-    /// ServerInit, which the Viewer was sent as it is.
-    Connected { desktop: ServerInit },
+    /// The Target's handshake completed. `desktop` is its ServerInit, which the Viewer is sent
+    /// as it is; messages are relayed from then on.
+    TargetConnected { desktop: ServerInit },
+    /// The session ended. It is the last event, and comes once.
+    Closed { reason: CloseReason },
+}
+
+/// Why a session ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CloseReason {
+    /// The host reported that the Viewer closed its connection.
+    ViewerClosed,
+    /// The host reported that the Target closed its connection.
+    TargetClosed,
+    /// The host rejected the Viewer or refused it a Target, with this reason.
+    Refused(String),
+    /// The Tap ended the session, with this reason.
+    Ended(String),
+    /// A leg broke the protocol, or failed its handshake.
+    Failed(Error),
 }
 
 /// Why the session stopped.
@@ -65,6 +86,8 @@ pub enum Error {
     /// The Viewer asked for a pixel format the Target's updates cannot be framed in: not
     /// valid, or colour-mapped.
     UnsupportedPixelFormat(PixelFormat),
+    /// The Tap ended the session, with this reason.
+    Ended(String),
 }
 
 /// The reason a Viewer is given when the Target leg fails during the handshake. The Target's own
@@ -74,8 +97,10 @@ const TARGET_FAILED: &str = "Connection to the Target failed";
 /// A Proxy between one Viewer and one Target, as a state machine: bytes in from either leg,
 /// bytes out to either leg.
 #[derive(Debug)]
-pub struct ProxySession {
+pub struct ProxySession<T = ForwardAll> {
     phase: Phase,
+    tap: T,
+    closed: bool,
     shared: bool,
     limits: Limits,
     events: VecDeque<Event>,
@@ -133,6 +158,8 @@ impl ProxySession {
                 early_target: Vec::new(),
                 settled: false,
             },
+            tap: ForwardAll,
+            closed: false,
             shared: config.shared,
             limits: config.limits,
             events: VecDeque::new(),
@@ -140,6 +167,41 @@ impl ProxySession {
             to_target: Vec::new(),
             failed: None,
         }
+    }
+}
+
+impl<T: Tap> ProxySession<T> {
+    /// The session with `tap` looking at every message it relays.
+    pub fn with_tap<U: Tap>(self, tap: U) -> ProxySession<U> {
+        ProxySession {
+            phase: self.phase,
+            tap,
+            closed: self.closed,
+            shared: self.shared,
+            limits: self.limits,
+            events: self.events,
+            to_viewer: self.to_viewer,
+            to_target: self.to_target,
+            failed: self.failed,
+        }
+    }
+
+    pub fn tap(&self) -> &T {
+        &self.tap
+    }
+
+    pub fn tap_mut(&mut self) -> &mut T {
+        &mut self.tap
+    }
+
+    /// Tells the session that the Viewer closed its connection; [`Event::Closed`] follows.
+    pub fn viewer_closed(&mut self) {
+        self.close(CloseReason::ViewerClosed);
+    }
+
+    /// Tells the session that the Target closed its connection; [`Event::Closed`] follows.
+    pub fn target_closed(&mut self) {
+        self.close(CloseReason::TargetClosed);
     }
 
     /// Feeds bytes received from the Viewer. After an error, every later call returns it again.
@@ -159,6 +221,7 @@ impl ProxySession {
             && !*settled
         {
             *settled = true;
+            self.events.push_back(Event::ViewerAuthenticated);
             self.events.push_back(Event::TargetNeeded);
         }
     }
@@ -200,6 +263,7 @@ impl ProxySession {
             if let Err(e) = viewer.receive(&[]) {
                 self.failed.get_or_insert(Error::ViewerHandshake(e));
             }
+            self.close(CloseReason::Refused(reason.to_owned()));
         }
     }
 
@@ -237,8 +301,20 @@ impl ProxySession {
         let result = step(self);
         if let Err(error) = &result {
             self.failed = Some(error.clone());
+            let reason = match error {
+                Error::Ended(reason) => CloseReason::Ended(reason.clone()),
+                error => CloseReason::Failed(error.clone()),
+            };
+            self.close(reason);
         }
         result
+    }
+
+    fn close(&mut self, reason: CloseReason) {
+        if !self.closed {
+            self.closed = true;
+            self.events.push_back(Event::Closed { reason });
+        }
     }
 
     fn viewer_bytes(&mut self, data: &[u8]) -> Result<(), Error> {
@@ -283,6 +359,9 @@ impl ProxySession {
                 return Err(Error::TargetHandshake(e));
             }
         };
+        self.events.push_back(Event::TargetConnected {
+            desktop: init.clone(),
+        });
         *desktop = Some(init);
         // The Target is up: now the Viewer is told its security succeeded.
         viewer.accept();
@@ -322,71 +401,116 @@ impl ProxySession {
             from_viewer: Vec::new(),
             from_target: Vec::new(),
         };
-        self.events.push_back(Event::Connected { desktop });
         self.relay_viewer(&from_viewer)?;
         self.relay_target(&from_target)
     }
 
     fn relay_viewer(&mut self, data: &[u8]) -> Result<(), Error> {
-        let Phase::Relay {
-            viewer_reader,
-            target_reader,
-            from_viewer,
+        let Self {
+            phase:
+                Phase::Relay {
+                    viewer_reader,
+                    target_reader,
+                    from_viewer,
+                    ..
+                },
+            tap,
+            to_target,
             ..
-        } = &mut self.phase
+        } = self
         else {
             return Ok(());
         };
         from_viewer.extend_from_slice(data);
         let mut at = 0;
-        while let Some((message, used)) = viewer_reader
-            .next(&from_viewer[at..])
-            .map_err(Error::Viewer)?
-        {
-            let bytes = &from_viewer[at..at + used];
-            at += used;
-            match message {
-                ClientMessage::SetPixelFormat(format) => {
-                    if !format.true_colour || !format.is_valid() {
-                        return Err(Error::UnsupportedPixelFormat(format));
+        let result = (|| {
+            while let Some((message, used)) = viewer_reader
+                .next(&from_viewer[at..])
+                .map_err(Error::Viewer)?
+            {
+                let bytes = &from_viewer[at..at + used];
+                at += used;
+                let (message, bytes) = match tap.viewer_message(&message) {
+                    Verdict::Forward => (message, Some(bytes)),
+                    Verdict::Drop => continue,
+                    Verdict::Replace(replacement) => (replacement, None),
+                    Verdict::End(reason) => return Err(Error::Ended(reason)),
+                };
+                let encoded =
+                    || bytes.map_or_else(|| client_message::encode(&message), <[u8]>::to_vec);
+                match &message {
+                    ClientMessage::SetPixelFormat(format) => {
+                        if !format.true_colour || !format.is_valid() {
+                            return Err(Error::UnsupportedPixelFormat(*format));
+                        }
+                        target_reader.set_pixel_format(format);
+                        to_target.extend(encoded());
                     }
-                    target_reader.set_pixel_format(&format);
-                    self.to_target.extend_from_slice(bytes);
+                    ClientMessage::SetEncodings(encodings) => {
+                        let narrowed = narrow_encodings(encodings);
+                        target_reader.set_last_rect(narrowed.contains(&encoding::LAST_RECT));
+                        to_target.extend(client_message::set_encodings(&narrowed));
+                    }
+                    _ => to_target.extend(encoded()),
                 }
-                ClientMessage::SetEncodings(encodings) => {
-                    let narrowed = narrow_encodings(&encodings);
-                    target_reader.set_last_rect(narrowed.contains(&encoding::LAST_RECT));
-                    self.to_target
-                        .extend_from_slice(&client_message::set_encodings(&narrowed));
-                }
-                _ => self.to_target.extend_from_slice(bytes),
             }
-        }
+            Ok(())
+        })();
         from_viewer.drain(..at);
-        Ok(())
+        result
     }
 
     fn relay_target(&mut self, data: &[u8]) -> Result<(), Error> {
-        let Phase::Relay {
-            target_reader,
-            from_target,
+        let Self {
+            phase:
+                Phase::Relay {
+                    target_reader,
+                    from_target,
+                    ..
+                },
+            tap,
+            to_viewer,
             ..
-        } = &mut self.phase
+        } = self
         else {
             return Ok(());
         };
         from_target.extend_from_slice(data);
         let mut at = 0;
-        while let Some((_, used)) = target_reader
-            .next(&from_target[at..])
-            .map_err(Error::Target)?
-        {
-            self.to_viewer
-                .extend_from_slice(&from_target[at..at + used]);
-            at += used;
-        }
+        let result = (|| {
+            while let Some((framed, used)) = target_reader
+                .next(&from_target[at..])
+                .map_err(Error::Target)?
+            {
+                let bytes = &from_target[at..at + used];
+                at += used;
+                let message = match framed {
+                    Framed::Bell => TargetMessage::Bell,
+                    Framed::CutText(text) => TargetMessage::CutText(text),
+                    piece => match tap.target_update(&piece) {
+                        UpdateVerdict::Forward => {
+                            to_viewer.extend_from_slice(bytes);
+                            continue;
+                        }
+                        UpdateVerdict::End(reason) => return Err(Error::Ended(reason)),
+                    },
+                };
+                match tap.target_message(&message) {
+                    Verdict::Forward => to_viewer.extend_from_slice(bytes),
+                    Verdict::Drop => {}
+                    Verdict::Replace(TargetMessage::Bell) => {
+                        to_viewer.extend(server_message::bell());
+                    }
+                    Verdict::Replace(TargetMessage::CutText(text)) => {
+                        to_viewer.extend(server_message::server_cut_text(&text));
+                    }
+                    Verdict::End(reason) => return Err(Error::Ended(reason)),
+                }
+            }
+            Ok(())
+        })();
         from_target.drain(..at);
-        Ok(())
+        result
     }
 }
 

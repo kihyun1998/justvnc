@@ -59,6 +59,7 @@ def main():
                 piece = b[i:i + 127]
                 data += bytes([leg | len(piece)]) + piece
         write("proxy_session", target, bytes(data))
+        write("proxy_session", f"{target}-tap", bytes([data[0] | 16]) + bytes(data[1:]))
 
 
 if __name__ == "__main__":

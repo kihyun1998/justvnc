@@ -75,7 +75,7 @@ It serves a 640x480 gradient with a white square moving by CopyRect and prints t
 JUSTVNC_TOKEN=token123 cargo run -p justvnc-proxy --features tokio --example proxy -- 127.0.0.1:15952 127.0.0.1:15900
 ```
 
-Viewers connect to 127.0.0.1:15952; with `JUSTVNC_TOKEN` set they authenticate with it. `JUSTVNC_TARGET_PASSWORD` is the Target's own password.
+Viewers connect to 127.0.0.1:15952; with `JUSTVNC_TOKEN` set they authenticate with it. `JUSTVNC_TARGET_PASSWORD` is the Target's own password. `JUSTVNC_BLOCK_CLIPBOARD=1` drops clipboard text both ways; each session's lifecycle events are printed.
 
 ## Recording fixtures
 

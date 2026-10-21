@@ -115,3 +115,17 @@ fn takes_last_rect_from_the_next_message_on() {
         })
     );
 }
+
+#[test]
+fn encodes_bell_and_server_cut_text_as_they_are_framed() {
+    let text = justvnc_proto::CutText::from_latin1(b"caf\xe9".to_vec());
+    let mut bytes = justvnc_proto::server_message::bell().to_vec();
+    bytes.extend(justvnc_proto::server_message::server_cut_text(&text));
+    let mut reader = ServerMessageReader::new(&XRGB, 64, 64, Limits::default());
+
+    assert_eq!(reader.next(&bytes), Ok(Some((Framed::Bell, 1))));
+    assert_eq!(
+        reader.next(&bytes[1..]),
+        Ok(Some((Framed::CutText(text), 12)))
+    );
+}

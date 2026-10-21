@@ -4,15 +4,17 @@ use std::future::Future;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::{CHALLENGE_LEN, Error, Event, Password, ProxyConfig, ProxySession};
+use crate::{CHALLENGE_LEN, Error, Event, Password, ProxyConfig, ProxySession, Tap};
 
 const READ_BUFFER: usize = 64 * 1024;
 
 /// How a relayed session ended normally.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ended {
     ViewerClosed,
     TargetClosed,
+    /// The Tap ended it, with this reason.
+    ByTap(String),
 }
 
 /// Why the Proxy stopped before either side closed.
@@ -24,57 +26,61 @@ pub enum ProxyError {
     ViewerClosed,
 }
 
-/// Serves one Viewer on `viewer`. `authenticate` decides VNC authentication from the challenge
-/// and the Viewer's response; a Viewer it rejects is told "Authentication failure". Once the
-/// Viewer is through, `connect` connects to the Target and returns the stream and the Target's
-/// password, or the reason the Viewer is refused. Then messages are relayed until either side
-/// closes.
-pub async fn serve<V, T, A, AF, C, CF>(
+/// Serves one Viewer on `viewer`, with `tap` looking at every relayed message and told every
+/// [`Event`]. `authenticate` decides VNC authentication from the challenge and the Viewer's
+/// response; a Viewer it rejects is told "Authentication failure". Once the Viewer is through,
+/// `connect` connects to the Target and returns the stream and the Target's password, or the
+/// reason the Viewer is refused. Then messages are relayed until either side closes.
+pub async fn serve<V, T, P, A, AF, C, CF>(
     viewer: V,
     config: ProxyConfig,
+    tap: P,
     mut authenticate: A,
     connect: C,
 ) -> Result<Ended, ProxyError>
 where
     V: AsyncRead + AsyncWrite + Unpin,
     T: AsyncRead + AsyncWrite + Unpin,
+    P: Tap,
     A: FnMut([u8; CHALLENGE_LEN], [u8; CHALLENGE_LEN]) -> AF,
     AF: Future<Output = bool>,
     C: FnOnce() -> CF,
     CF: Future<Output = Result<(T, Option<Password>), String>>,
 {
     let mut viewer = viewer;
-    let mut session = ProxySession::new(config);
+    let mut session = ProxySession::new(config).with_tap(tap);
     let mut buf = vec![0u8; READ_BUFFER];
     flush(&mut viewer, &mut session, None::<&mut T>).await?;
     // The viewer leg, until the Viewer is through security.
-    loop {
-        match session.poll_event() {
-            Some(Event::Authenticate {
-                challenge,
-                response,
-            }) => {
-                if authenticate(challenge, response).await {
-                    session.accept();
-                } else {
-                    session.reject("Authentication failure");
-                    flush(&mut viewer, &mut session, None::<&mut T>).await?;
-                    return Err(ended(&mut session));
+    'viewer: loop {
+        while let Some(event) = next_event(&mut session) {
+            match event {
+                Event::Authenticate {
+                    challenge,
+                    response,
+                } => {
+                    if authenticate(challenge, response).await {
+                        session.accept();
+                    } else {
+                        session.reject("Authentication failure");
+                        flush(&mut viewer, &mut session, None::<&mut T>).await?;
+                        return Err(ended(&mut session));
+                    }
                 }
-            }
-            Some(Event::TargetNeeded) => break,
-            Some(Event::Connected { .. }) => unreachable!("no Target yet"),
-            None => {
-                let n = viewer.read(&mut buf).await?;
-                if n == 0 {
-                    return Err(ProxyError::ViewerClosed);
-                }
-                session
-                    .receive_viewer(&buf[..n])
-                    .map_err(ProxyError::Protocol)?;
-                flush(&mut viewer, &mut session, None::<&mut T>).await?;
+                Event::TargetNeeded => break 'viewer,
+                _ => {}
             }
         }
+        let n = viewer.read(&mut buf).await?;
+        if n == 0 {
+            session.viewer_closed();
+            while next_event(&mut session).is_some() {}
+            return Err(ProxyError::ViewerClosed);
+        }
+        session
+            .receive_viewer(&buf[..n])
+            .map_err(ProxyError::Protocol)?;
+        flush(&mut viewer, &mut session, None::<&mut T>).await?;
     }
     let mut target = match connect().await {
         Ok((target, password)) => {
@@ -93,22 +99,42 @@ where
     loop {
         let result = tokio::select! {
             n = viewer.read(&mut buf) => match n? {
-                0 => return Ok(Ended::ViewerClosed),
+                0 => {
+                    session.viewer_closed();
+                    while next_event(&mut session).is_some() {}
+                    return Ok(Ended::ViewerClosed);
+                }
                 n => session.receive_viewer(&buf[..n]),
             },
             n = target.read(&mut target_buf) => match n? {
-                0 => return Ok(Ended::TargetClosed),
+                0 => {
+                    session.target_closed();
+                    while next_event(&mut session).is_some() {}
+                    return Ok(Ended::TargetClosed);
+                }
                 n => session.receive_target(&target_buf[..n]),
             },
         };
         flush(&mut viewer, &mut session, Some(&mut target)).await?;
-        result.map_err(ProxyError::Protocol)?;
-        while session.poll_event().is_some() {}
+        while next_event(&mut session).is_some() {}
+        match result {
+            Ok(()) => {}
+            Err(Error::Ended(reason)) => return Ok(Ended::ByTap(reason)),
+            Err(e) => return Err(ProxyError::Protocol(e)),
+        }
     }
 }
 
-/// The error a session that has ended returns.
-fn ended(session: &mut ProxySession) -> ProxyError {
+/// The session's next event, after the Tap has been told of it.
+fn next_event<P: Tap>(session: &mut ProxySession<P>) -> Option<Event> {
+    let event = session.poll_event()?;
+    session.tap_mut().event(&event);
+    Some(event)
+}
+
+/// The error a session that has ended returns, once the Tap has been told it closed.
+fn ended<P: Tap>(session: &mut ProxySession<P>) -> ProxyError {
+    while next_event(session).is_some() {}
     ProxyError::Protocol(
         session
             .receive_viewer(&[])
@@ -116,9 +142,9 @@ fn ended(session: &mut ProxySession) -> ProxyError {
     )
 }
 
-async fn flush<V, T>(
+async fn flush<V, T, P: Tap>(
     viewer: &mut V,
-    session: &mut ProxySession,
+    session: &mut ProxySession<P>,
     target: Option<&mut T>,
 ) -> Result<(), ProxyError>
 where

@@ -183,3 +183,21 @@ pub fn client_cut_text(text: &CutText) -> Vec<u8> {
     out.extend_from_slice(bytes);
     out
 }
+
+/// `message` encoded for the wire.
+///
+/// # Panics
+///
+/// As the encoder for its type does.
+pub fn encode(message: &ClientMessage) -> Vec<u8> {
+    match message {
+        ClientMessage::SetPixelFormat(format) => set_pixel_format(format).to_vec(),
+        ClientMessage::SetEncodings(encodings) => set_encodings(encodings),
+        ClientMessage::FramebufferUpdateRequest { incremental, rect } => {
+            framebuffer_update_request(*incremental, *rect).to_vec()
+        }
+        ClientMessage::KeyEvent { down, keysym } => key_event(*down, *keysym).to_vec(),
+        ClientMessage::PointerEvent { buttons, x, y } => pointer_event(*buttons, *x, *y).to_vec(),
+        ClientMessage::CutText(text) => client_cut_text(text),
+    }
+}

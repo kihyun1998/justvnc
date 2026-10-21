@@ -4,7 +4,8 @@
 use justvnc_client::{ClientConfig, Event as ClientEvent};
 use justvnc_proxy::tokio::{Ended, ProxyError, serve};
 use justvnc_proxy::{
-    Error, HandshakeError, Password, PixelFormat, ProxyConfig, SecurityType, verify,
+    ClientMessage, Error, ForwardAll, HandshakeError, Password, PixelFormat, ProxyConfig,
+    SecurityType, Tap, Verdict, verify,
 };
 use justvnc_server::{Framebuffer, Rect, ServerConfig};
 use tokio::net::{TcpListener, TcpStream};
@@ -26,6 +27,7 @@ const XRGB: PixelFormat = PixelFormat {
 #[derive(Default)]
 struct Pattern {
     keys: Vec<(bool, u32)>,
+    cut_text: Vec<justvnc_server::CutText>,
 }
 
 impl Framebuffer for Pattern {
@@ -46,6 +48,10 @@ impl Framebuffer for Pattern {
 
     fn key_event(&mut self, down: bool, keysym: u32) {
         self.keys.push((down, keysym));
+    }
+
+    fn cut_text(&mut self, text: justvnc_server::CutText) {
+        self.cut_text.push(text);
     }
 }
 
@@ -74,6 +80,14 @@ async fn target(listener: TcpListener, pattern: &mut Pattern) {
 /// The Proxy: the Viewer authenticates with the one-time token "token123", and the Proxy logs
 /// in to the Target with the Target's real password.
 async fn proxy(listener: TcpListener, target: std::net::SocketAddr) -> Result<Ended, ProxyError> {
+    proxy_with(listener, target, ForwardAll).await
+}
+
+async fn proxy_with(
+    listener: TcpListener,
+    target: std::net::SocketAddr,
+    tap: impl Tap,
+) -> Result<Ended, ProxyError> {
     let (stream, _) = listener.accept().await.unwrap();
     let config = ProxyConfig {
         security: vec![SecurityType::VncAuth],
@@ -87,7 +101,7 @@ async fn proxy(listener: TcpListener, target: std::net::SocketAddr) -> Result<En
             .map_err(|e| e.to_string())?;
         Ok((stream, Some(Password::new("target-secret"))))
     };
-    serve(stream, config, authenticate, connect).await
+    serve(stream, config, tap, authenticate, connect).await
 }
 
 #[tokio::test]
@@ -149,6 +163,7 @@ async fn a_viewer_is_told_when_the_target_cannot_be_reached() {
         serve(
             stream,
             ProxyConfig::default(),
+            ForwardAll,
             |_, _| async { true },
             connect,
         )
@@ -189,5 +204,98 @@ fn serve_can_be_spawned(viewer: TcpStream, token: String, target_password: Strin
             .map_err(|e| e.to_string())?;
         Ok((stream, Some(Password::new(target_password))))
     };
-    tokio::spawn(serve(viewer, ProxyConfig::default(), authenticate, connect));
+    tokio::spawn(serve(
+        viewer,
+        ProxyConfig::default(),
+        ForwardAll,
+        authenticate,
+        connect,
+    ));
+}
+
+/// A Tap that blocks clipboard text from the Viewer, ends the session at the second key, and
+/// keeps the names of the events it is told.
+#[derive(Default)]
+struct Guard {
+    keys: usize,
+    events: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+}
+
+impl Tap for Guard {
+    fn viewer_message(&mut self, message: &ClientMessage) -> Verdict<ClientMessage> {
+        match message {
+            ClientMessage::CutText(_) => Verdict::Drop,
+            ClientMessage::KeyEvent { .. } => {
+                self.keys += 1;
+                if self.keys == 2 {
+                    Verdict::End("one key only".into())
+                } else {
+                    Verdict::Forward
+                }
+            }
+            _ => Verdict::Forward,
+        }
+    }
+
+    fn event(&mut self, event: &justvnc_proxy::Event) {
+        let name = format!("{event:?}");
+        self.events
+            .borrow_mut()
+            .push(name.split([' ', '{', '(']).next().unwrap().to_owned());
+    }
+}
+
+#[tokio::test]
+async fn the_tap_filters_and_ends_a_session_served_over_tcp() {
+    let target_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let target_address = target_listener.local_addr().unwrap();
+    let proxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy_address = proxy_listener.local_addr().unwrap();
+    let mut pattern = Pattern::default();
+    let guard = Guard::default();
+    let events = guard.events.clone();
+
+    let viewer = async {
+        let stream = TcpStream::connect(proxy_address).await.unwrap();
+        let config = ClientConfig {
+            password: Some(Password::new("token123")),
+            ..ClientConfig::default()
+        };
+        let mut connection = justvnc_client::tokio::connect(stream, config)
+            .await
+            .unwrap();
+        let text = justvnc_client::CutText::from_text("secret").unwrap();
+        connection.send_cut_text(&text).await.unwrap();
+        connection.key_event(true, 0x61).await.unwrap();
+        connection.key_event(false, 0x61).await.unwrap();
+        // The Proxy ends the session and drops the Viewer's connection.
+        while connection.next_event().await.is_ok() {}
+    };
+    let (_, proxied, ()) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::join!(
+            target(target_listener, &mut pattern),
+            proxy_with(proxy_listener, target_address, guard),
+            viewer
+        )
+    })
+    .await
+    .expect("the session completes");
+
+    assert_eq!(proxied.unwrap(), Ended::ByTap("one key only".into()));
+    assert_eq!(
+        pattern.keys,
+        [(true, 0x61)],
+        "the second key was never relayed"
+    );
+    assert_eq!(pattern.cut_text, [], "the clipboard text was dropped");
+    assert_eq!(
+        *events.borrow(),
+        [
+            "Authenticate",
+            "ViewerAuthenticated",
+            "TargetNeeded",
+            "TargetConnected",
+            "Closed"
+        ]
+    );
 }

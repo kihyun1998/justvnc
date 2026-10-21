@@ -327,3 +327,22 @@ pub fn rectangle(rect: Rect, encoding: i32) -> [u8; RECT_HEADER] {
     out[8..12].copy_from_slice(&encoding.to_be_bytes());
     out
 }
+
+/// Bell.
+pub fn bell() -> [u8; 1] {
+    [BELL]
+}
+
+/// ServerCutText.
+///
+/// # Panics
+///
+/// If the text is longer than `u32::MAX` bytes.
+pub fn server_cut_text(text: &CutText) -> Vec<u8> {
+    let bytes = text.as_bytes();
+    let length = u32::try_from(bytes.len()).expect("cut text fits a U32 length");
+    let mut out = vec![SERVER_CUT_TEXT, 0, 0, 0];
+    out.extend_from_slice(&length.to_be_bytes());
+    out.extend_from_slice(bytes);
+    out
+}

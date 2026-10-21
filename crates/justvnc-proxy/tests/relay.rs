@@ -142,7 +142,11 @@ fn relays_tightvnc_viewer_to_tigervnc() {
         .concat()
     );
     assert_eq!(run.error, None);
-    let Some(Event::Connected { desktop }) = run.events.first() else {
+    let Some(Event::TargetConnected { desktop }) = run
+        .events
+        .iter()
+        .find(|e| matches!(e, Event::TargetConnected { .. }))
+    else {
         panic!("{:?}", run.events);
     };
     assert_eq!(desktop.to_bytes(), TARGET[12 + 2 + 4..init_end]);
@@ -272,7 +276,10 @@ fn closes_on_a_viewer_before_3_8_without_telling_it_why() {
     };
     let mut run = Run::new(ProxySession::with_challenge(config, [0; 16]));
     run.viewer(b"RFB 003.007\n\x01");
-    assert_eq!(run.events, [Event::TargetNeeded]);
+    assert_eq!(
+        run.events,
+        [Event::ViewerAuthenticated, Event::TargetNeeded]
+    );
     let sent = run.to_viewer.len();
 
     run.proxy.refuse("Target unreachable");
@@ -446,6 +453,6 @@ fn never_tells_the_viewer_it_passed_before_the_host_decided() {
     assert!(
         !run.events
             .iter()
-            .any(|e| matches!(e, Event::Connected { .. }))
+            .any(|e| matches!(e, Event::TargetConnected { .. }))
     );
 }

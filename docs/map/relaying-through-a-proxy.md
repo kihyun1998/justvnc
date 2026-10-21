@@ -22,6 +22,16 @@ The target-leg reader frames in the pixel format the Viewer asked for and with L
 
 A SetPixelFormat that is colour-mapped or not valid is refused (`Error::UnsupportedPixelFormat`) and not forwarded: a colour-mapped Target would send SetColourMapEntries, which is not framed.
 
+## The Tap
+
+The host's `Tap` sees each framed message after narrowing has been decided but before anything is forwarded, and answers `Verdict::Forward`, `Drop`, `Replace(message)` or `End(reason)`. A replacement from the Viewer side goes through the same handling as a message the Viewer sent: a SetEncodings is narrowed and sets LastRect on the target-leg reader, and a SetPixelFormat is checked and sets the reader's format. Otherwise a Tap that took LastRect out would leave the reader expecting it, and the stream would desynchronise.
+
+**Maintainer's call (#14):** the pieces of a FramebufferUpdate (rectangles, copies, DesktopSize, the update's end) are shown to `Tap::target_update`, which can only forward them or end the session. Dropping or replacing one would mean holding the whole update to rewrite its count, delaying the screen by an update's worth and keeping up to the limits in memory, and replacing a Tight or ZRLE rectangle would break the zlib stream the Viewer carries across rectangles. The maintainer was shown that option, and not showing updates to the Tap at all. Bell and ServerCutText from the Target, and every message from the Viewer, can be dropped or replaced.
+
+## Lifecycle
+
+The session reports `ViewerAuthenticated` (after `accept`, or None chosen), `TargetNeeded`, `TargetConnected { desktop }` (the Target's ServerInit) and, once and last, `Closed { reason }`. The reason is `ViewerClosed` or `TargetClosed`, which only the host can know and reports with `viewer_closed` and `target_closed`; `Refused(reason)` after `reject` or `refuse`; `Ended(reason)` from the Tap; or `Failed(error)`. The tokio driver tells the Tap each event through `Tap::event`, for audit logs, and returns `Ended::ByTap(reason)` when the Tap ends a session.
+
 ## Passwords
 
 **Maintainer's call (#13):** `Password` overwrites its bytes with zeros when dropped (the `zeroize` crate), because the Proxy holds the Target's real password for a whole session. The maintainer was shown keeping #3's decision to leave it out, and told that zeroing on drop does not reach copies a `Vec` left behind when it grew. The comment that raised it said zeroize was already a dependency through `des`; it was not, so this added it. The test checks `ZeroizeOnDrop` only: reading freed memory to watch the zeros would be undefined behaviour.
