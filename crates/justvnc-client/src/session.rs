@@ -18,6 +18,19 @@ const ENCODINGS: [i32; 6] = [
     encoding::RAW,
 ];
 
+/// The encodings to offer: `ENCODINGS`, then a JPEG quality level when one is configured.
+fn encodings(config: &ClientConfig) -> Vec<i32> {
+    #[cfg_attr(not(feature = "jpeg"), allow(unused_mut))]
+    let mut encodings = ENCODINGS.to_vec();
+    #[cfg(feature = "jpeg")]
+    if let Some(level) = config.jpeg_quality {
+        encodings.push(encoding::JPEG_QUALITY_LOWEST + i32::from(level.min(9)));
+    }
+    #[cfg(not(feature = "jpeg"))]
+    let _ = config;
+    encodings
+}
+
 /// How a client session behaves.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -28,6 +41,10 @@ pub struct ClientConfig {
     /// Pixel format to ask the server for. Without one, the server's own format is used.
     pub pixel_format: Option<PixelFormat>,
     pub limits: Limits,
+    /// JPEG quality level to ask for, 0 (lowest) to 9 (highest); above 9 is taken as 9. Without
+    /// one, servers send no JPEG.
+    #[cfg(feature = "jpeg")]
+    pub jpeg_quality: Option<u8>,
 }
 
 impl Default for ClientConfig {
@@ -37,6 +54,8 @@ impl Default for ClientConfig {
             password: None,
             pixel_format: None,
             limits: Limits::default(),
+            #[cfg(feature = "jpeg")]
+            jpeg_quality: Some(8),
         }
     }
 }
@@ -85,6 +104,7 @@ pub struct ClientSession {
     phase: Phase,
     requested_format: Option<PixelFormat>,
     limits: Limits,
+    encodings: Vec<i32>,
     events: VecDeque<Event>,
     transmit: Vec<u8>,
     failed: Option<Error>,
@@ -103,6 +123,7 @@ enum Phase {
 
 impl ClientSession {
     pub fn new(config: ClientConfig) -> Self {
+        let encodings = encodings(&config);
         Self {
             phase: Phase::Handshake(ClientHandshake::new(
                 config.shared,
@@ -111,6 +132,7 @@ impl ClientSession {
             )),
             requested_format: config.pixel_format,
             limits: config.limits,
+            encodings,
             events: VecDeque::new(),
             transmit: Vec::new(),
             failed: None,
@@ -212,7 +234,7 @@ impl ClientSession {
                 .extend_from_slice(&client_message::set_pixel_format(requested));
         }
         self.transmit
-            .extend_from_slice(&client_message::set_encodings(&ENCODINGS));
+            .extend_from_slice(&client_message::set_encodings(&self.encodings));
         self.phase = Phase::Messages {
             reader: ServerMessageReader::new(&format, init.width, init.height, self.limits)
                 .with_last_rect(),

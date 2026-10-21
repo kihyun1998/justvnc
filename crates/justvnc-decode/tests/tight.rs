@@ -218,6 +218,7 @@ fn refuses_data_that_inflates_past_its_rectangle() {
 }
 
 #[test]
+#[cfg(not(feature = "jpeg"))]
 fn reports_jpeg_as_not_supported_yet() {
     // JpegCompression (0x90), compact length 2, two bytes.
     let result = decode(
@@ -228,4 +229,103 @@ fn reports_jpeg_as_not_supported_yet() {
     );
 
     assert_eq!(result, Err(DecodeError::Unsupported("Tight JPEG")));
+}
+
+/// The first JFIF image in TigerVNC's JPEG recording (256x64), from its SOI to its EOI marker.
+#[cfg(feature = "jpeg")]
+fn recorded_jpeg() -> Vec<u8> {
+    let recording = include_bytes!(
+        "../../justvnc-client/tests/fixtures/tigervnc-3.8-none-tight-jpeg.server.bin"
+    );
+    let start = recording
+        .windows(3)
+        .position(|w| w == [0xff, 0xd8, 0xff])
+        .unwrap();
+    let end = start
+        + recording[start..]
+            .windows(2)
+            .position(|w| w == [0xff, 0xd9])
+            .unwrap()
+        + 2;
+    recording[start..end].to_vec()
+}
+
+/// JpegCompression with a compact length, for data shorter than 4194304 bytes.
+#[cfg(feature = "jpeg")]
+fn jpeg_rect(jfif: &[u8]) -> Vec<u8> {
+    let n = jfif.len();
+    let mut out = vec![0x90];
+    match n {
+        0..=127 => out.push(n as u8),
+        128..=16383 => out.extend([(n & 0x7f) as u8 | 0x80, (n >> 7) as u8]),
+        _ => out.extend([
+            (n & 0x7f) as u8 | 0x80,
+            ((n >> 7) & 0x7f) as u8 | 0x80,
+            (n >> 14) as u8,
+        ]),
+    }
+    [out, jfif.to_vec()].concat()
+}
+
+#[test]
+#[cfg(feature = "jpeg")]
+fn decodes_a_recorded_jpeg_the_size_of_its_rectangle() {
+    let pixels = decode(
+        &mut Decoder::new(),
+        rect(256, 64),
+        &jpeg_rect(&recorded_jpeg()),
+        &xrgb(false),
+    );
+
+    assert_eq!(pixels.map(|p| p.len()), Ok(256 * 64 * 4));
+}
+
+#[test]
+#[cfg(feature = "jpeg")]
+fn refuses_a_jpeg_that_is_not_the_size_of_its_rectangle() {
+    // The image is 256x64: a narrower rectangle and a wider one.
+    for width in [255, 257] {
+        let result = decode(
+            &mut Decoder::new(),
+            rect(width, 64),
+            &jpeg_rect(&recorded_jpeg()),
+            &xrgb(false),
+        );
+
+        assert!(
+            matches!(result, Err(DecodeError::Corrupt(_))),
+            "{width}: {result:?}"
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "jpeg")]
+fn refuses_jpeg_below_16_bits_per_pixel() {
+    // rfbproto: JpegCompression may only be used with 16 or 32 bits per pixel.
+    let grey8 = PixelFormat {
+        bits_per_pixel: 8,
+        depth: 8,
+        red_max: 7,
+        green_max: 7,
+        blue_max: 3,
+        red_shift: 0,
+        green_shift: 3,
+        blue_shift: 6,
+        ..xrgb(false)
+    };
+
+    let result = decode(
+        &mut Decoder::new(),
+        rect(256, 64),
+        &jpeg_rect(&recorded_jpeg()),
+        &grey8,
+    );
+
+    assert_eq!(
+        result,
+        Err(DecodeError::Corrupt(
+            "Tight JPEG needs 16 or 32 bits per pixel"
+        ))
+    );
 }

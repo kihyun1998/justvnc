@@ -92,4 +92,13 @@ python interop/record_updates.py 127.0.0.1 15940 <prefix>-reference-raw --exec "
 python interop/tight_census.py <prefix>.server.bin
 ```
 
+The JPEG fixture comes from TigerVNC with a quality level offered (`-24` is level 8), and its expected pixels from Pillow:
+
+```sh
+python interop/record_updates.py 127.0.0.1 15930 <prefix> --exec "podman exec jv-rec" --encodings=-223,-224,1,7,16,0,-24   "run:(xwud -in /tmp/zrle-test.xwd -geometry +0+0 &); sleep 1.5" full full
+python interop/tight_jpeg_reference.py <prefix>.server.bin <prefix>.libjpeg.bin [<raw-reference>.server.bin]
+```
+
+The JPEG tests run only with the feature: `cargo test --workspace --all-features`. CI also runs `cargo test --workspace` to cover the session without it.
+
 Name a fixture after the server that produced it, and note where it came from in the map note for that area.

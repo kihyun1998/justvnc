@@ -49,7 +49,7 @@ impl TightDecoder {
                 let pixel = pixels.read(reader.take(pixels.len)?);
                 return Ok(pixel.repeat(count));
             }
-            Method::Jpeg => return Err(DecodeError::Unsupported("Tight JPEG")),
+            Method::Jpeg => return jpeg(&mut reader, rect, format),
             Method::Basic { stream, filter_id } => (
                 stream,
                 if filter_id {
@@ -153,6 +153,61 @@ impl TightDecoder {
     }
 }
 
+#[cfg(not(feature = "jpeg"))]
+fn jpeg(_: &mut Reader, _: Rect, _: &PixelFormat) -> Result<Vec<u8>, DecodeError> {
+    Err(DecodeError::Unsupported("Tight JPEG"))
+}
+
+/// A JpegCompression rectangle: a compact length and a JFIF image exactly `rect`'s size,
+/// decoded to red, green, blue and put into `format` (16 or 32 bpp true colour only).
+#[cfg(feature = "jpeg")]
+fn jpeg(reader: &mut Reader, rect: Rect, format: &PixelFormat) -> Result<Vec<u8>, DecodeError> {
+    use zune_jpeg::JpegDecoder;
+    use zune_jpeg::zune_core::bytestream::ZCursor;
+    use zune_jpeg::zune_core::colorspace::ColorSpace;
+    use zune_jpeg::zune_core::options::DecoderOptions;
+
+    if !format.true_colour || !matches!(format.bits_per_pixel, 16 | 32) {
+        return Err(DecodeError::Corrupt(
+            "Tight JPEG needs 16 or 32 bits per pixel",
+        ));
+    }
+    let (length, used) = tight::compact_length(&reader.data[reader.at..])
+        .ok_or(DecodeError::Corrupt("Tight data ends early"))?;
+    reader.at += used;
+    let jfif = reader.take(length)?;
+    let (width, height) = (usize::from(rect.width), usize::from(rect.height));
+    let options = DecoderOptions::default()
+        .jpeg_set_out_colorspace(ColorSpace::RGB)
+        .set_max_width(width.max(1))
+        .set_max_height(height.max(1));
+    let mut decoder = JpegDecoder::new_with_options(ZCursor::new(jfif), options);
+    decoder
+        .decode_headers()
+        .map_err(|_| DecodeError::Corrupt("Tight JPEG is not a valid image"))?;
+    let info = decoder
+        .info()
+        .ok_or(DecodeError::Corrupt("Tight JPEG is not a valid image"))?;
+    if (usize::from(info.width), usize::from(info.height)) != (width, height) {
+        return Err(DecodeError::Corrupt(
+            "Tight JPEG is not the rectangle's size",
+        ));
+    }
+    let rgb = decoder
+        .decode()
+        .map_err(|_| DecodeError::Corrupt("Tight JPEG is not a valid image"))?;
+    let pixels = TPixels {
+        len: 3,
+        format: *format,
+    };
+    Ok(rgb
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .flat_map(|p| pixels.rgb_to_pixel(p))
+        .collect())
+}
+
 struct Reader<'a> {
     data: &'a [u8],
     at: usize,
@@ -201,6 +256,18 @@ impl TPixels {
         let value = u32::from(bytes[0]) << f.red_shift
             | u32::from(bytes[1]) << f.green_shift
             | u32::from(bytes[2]) << f.blue_shift;
+        encode(value, f)
+    }
+
+    /// The pixel, in the session's format, for 8-bit red, green and blue, each scaled to the
+    /// format's range.
+    #[cfg(feature = "jpeg")]
+    fn rgb_to_pixel(&self, rgb: &[u8; 3]) -> Vec<u8> {
+        let f = &self.format;
+        let scale = |v: u8, max: u16| (u32::from(v) * u32::from(max) + 127) / 255;
+        let value = scale(rgb[0], f.red_max) << f.red_shift
+            | scale(rgb[1], f.green_max) << f.green_shift
+            | scale(rgb[2], f.blue_max) << f.blue_shift;
         encode(value, f)
     }
 
