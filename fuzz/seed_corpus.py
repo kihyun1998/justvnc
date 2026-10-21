@@ -1,4 +1,5 @@
-"""Writes starting corpora for the fuzz targets from the client role's recorded fixtures.
+"""Writes starting corpora for the fuzz targets from the recorded fixtures: what servers sent
+the client role, and what the recorder sent them.
 
 Usage: python seed_corpus.py   (from fuzz/; writes corpus/<target>/)
 """
@@ -33,6 +34,18 @@ def main():
         for last_rect in (0, 1):
             write("server_messages", f"{name}-{last_rect}", b[init + 4:init + 20] + b[init:init + 4]
                   + bytes([last_rect]) + b[end:])
+
+    for fixture in sorted(FIXTURES.glob("*.client.bin")):
+        b = fixture.read_bytes()
+        name = fixture.name.removesuffix(".client.bin")
+        version = {b"RFB 003.003\n": 0, b"RFB 003.007\n": 1}.get(b[:12], 2)
+        flags = version | (4 if "vncauth" in name else 0) | (0 if "wrong" in name else 8)
+        for chunk in (0, 7):
+            write("server_session", f"{name}-{chunk}", bytes([flags, chunk]) + b)
+            write("server_session", f"{name}-{chunk}-damage", bytes([flags | 16, chunk]) + b)
+        # After a 3.8 None handshake (version, security type, ClientInit) come the messages.
+        if b[:13] == b"RFB 003.008\n\x01" and len(b) > 14:
+            write("client_messages", name, b[14:])
 
 
 if __name__ == "__main__":

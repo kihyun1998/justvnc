@@ -9,6 +9,7 @@ mod limits;
 mod password;
 mod pixel_format;
 mod rect;
+pub mod server;
 mod server_init;
 pub mod server_message;
 pub mod tight;

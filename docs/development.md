@@ -41,7 +41,7 @@ python3 fuzz/seed_corpus.py
 cd fuzz && cargo +nightly fuzz run server_messages corpus/server_messages -- -max_total_time=60 -timeout=10
 ```
 
-The targets are `server_messages` (framing after ServerInit), `client_handshake` and `client_session` (the whole client, decoding included). On Windows, run them in a Linux container; see `docs/map/fuzzing.md`. A crash is fixed and its input kept as an ordinary test in the crate it was found in.
+The targets are `server_messages` and `client_messages` (framing in each direction), `client_handshake`, `client_session` (the whole client, decoding included) and `server_session`. On Windows, run them in a Linux container; see `docs/map/fuzzing.md`. A crash is fixed and its input kept as an ordinary test in the crate it was found in.
 
 `crates/justvnc-proto/tests/raised_limits.rs` only fails on a 32-bit target. CI runs it on i686: `cargo test -p justvnc-proto --target i686-unknown-linux-gnu`.
 
@@ -52,6 +52,14 @@ cargo run -p justvnc-client --features tokio --example viewer -- 127.0.0.1:15900
 ```
 
 `JUSTVNC_PASSWORD` sets the VNC password. It syncs the local clipboard both ways, so running it replaces whatever the clipboard held.
+
+## Example server
+
+```sh
+cargo run -p justvnc-server --features tokio --example pattern -- 127.0.0.1:15950
+```
+
+It serves a 640x480 gradient with a moving white square and prints the Viewer's input. `JUSTVNC_PASSWORD` turns on VNC authentication.
 
 ## Recording fixtures
 
@@ -116,3 +124,11 @@ python interop/tight_jpeg_reference.py <prefix>.server.bin <prefix>.libjpeg.bin 
 The JPEG tests run only with the feature: `cargo test --workspace --all-features`. CI also runs `cargo test --workspace` to cover the session without it.
 
 Name a fixture after the server that produced it, and note where it came from in the map note for that area.
+
+To record a real Viewer, put `interop/record_relay.py` between it and a server. It writes `<prefix>.viewer.bin` and `<prefix>.server.bin` when the Viewer disconnects:
+
+```sh
+python interop/record_relay.py 15951 127.0.0.1 15950 <prefix>
+```
+
+Then connect the Viewer to `127.0.0.1::15951`. A Viewer's fixtures live in `crates/justvnc-server/tests/fixtures/`.

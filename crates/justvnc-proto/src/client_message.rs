@@ -1,6 +1,129 @@
-//! Client-to-server messages, encoded for the wire.
+//! Client-to-server messages: encoded for the wire, and framed from it.
 
-use crate::{CutText, PixelFormat, Rect};
+use crate::{CutText, Limits, MessageError, PixelFormat, Rect};
+
+/// One message from the client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClientMessage {
+    SetPixelFormat(PixelFormat),
+    /// The encodings the client accepts, most preferred first.
+    SetEncodings(Vec<i32>),
+    FramebufferUpdateRequest {
+        incremental: bool,
+        rect: Rect,
+    },
+    KeyEvent {
+        down: bool,
+        keysym: u32,
+    },
+    /// The pointer at (`x`, `y`) with buttons 1 to 8 in bits 0 to 7.
+    PointerEvent {
+        buttons: u8,
+        x: u16,
+        y: u16,
+    },
+    /// ClientCutText.
+    CutText(CutText),
+}
+
+/// Frames the client's messages after ClientInit, one at a time.
+#[derive(Debug)]
+pub struct ClientMessageReader {
+    limits: Limits,
+}
+
+const SET_PIXEL_FORMAT: u8 = 0;
+const SET_ENCODINGS: u8 = 2;
+const FRAMEBUFFER_UPDATE_REQUEST: u8 = 3;
+const KEY_EVENT: u8 = 4;
+const POINTER_EVENT: u8 = 5;
+const CLIENT_CUT_TEXT: u8 = 6;
+
+impl ClientMessageReader {
+    pub fn new(limits: Limits) -> Self {
+        Self { limits }
+    }
+
+    /// Frames the message at the start of `buf`. Returns it and how many bytes of `buf` it used,
+    /// or `None` when `buf` does not hold all of it yet.
+    pub fn next(&mut self, buf: &[u8]) -> Result<Option<(ClientMessage, usize)>, MessageError> {
+        let Some(&message_type) = buf.first() else {
+            return Ok(None);
+        };
+        let u16_at = |i: usize| u16::from_be_bytes([buf[i], buf[i + 1]]);
+        let u32_at = |i: usize| u32::from_be_bytes([buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]);
+        let fixed = |len: usize| buf.len() >= len;
+        Ok(match message_type {
+            SET_PIXEL_FORMAT if fixed(20) => {
+                let format = PixelFormat::from_bytes(buf[4..20].try_into().unwrap());
+                Some((ClientMessage::SetPixelFormat(format), 20))
+            }
+            SET_ENCODINGS if fixed(4) => {
+                let end = 4 + 4 * usize::from(u16_at(2));
+                buf.get(4..end).map(|list| {
+                    let encodings = list
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|e| i32::from_be_bytes(*e))
+                        .collect();
+                    (ClientMessage::SetEncodings(encodings), end)
+                })
+            }
+            FRAMEBUFFER_UPDATE_REQUEST if fixed(10) => {
+                let rect = Rect {
+                    x: u16_at(2),
+                    y: u16_at(4),
+                    width: u16_at(6),
+                    height: u16_at(8),
+                };
+                let incremental = buf[1] != 0;
+                Some((
+                    ClientMessage::FramebufferUpdateRequest { incremental, rect },
+                    10,
+                ))
+            }
+            KEY_EVENT if fixed(8) => Some((
+                ClientMessage::KeyEvent {
+                    down: buf[1] != 0,
+                    keysym: u32_at(4),
+                },
+                8,
+            )),
+            POINTER_EVENT if fixed(6) => Some((
+                ClientMessage::PointerEvent {
+                    buttons: buf[1],
+                    x: u16_at(2),
+                    y: u16_at(4),
+                },
+                6,
+            )),
+            CLIENT_CUT_TEXT if fixed(8) => {
+                let length = u32_at(4);
+                let max = self.limits.max_cut_text_length;
+                if length > max {
+                    return Err(MessageError::LimitExceeded {
+                        field: "cut-text-length",
+                        length,
+                        max,
+                    });
+                }
+                let end = 8usize.saturating_add(length as usize);
+                buf.get(8..end).map(|text| {
+                    let text = CutText::from_latin1(text.to_vec());
+                    (ClientMessage::CutText(text), end)
+                })
+            }
+            SET_PIXEL_FORMAT
+            | SET_ENCODINGS
+            | FRAMEBUFFER_UPDATE_REQUEST
+            | KEY_EVENT
+            | POINTER_EVENT
+            | CLIENT_CUT_TEXT => None,
+            _ => return Err(MessageError::UnsupportedMessage { message_type }),
+        })
+    }
+}
 
 /// SetPixelFormat (message type 0).
 pub fn set_pixel_format(format: &PixelFormat) -> [u8; 20] {

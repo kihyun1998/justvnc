@@ -1,4 +1,5 @@
-//! Framing of server-to-client messages: where each message and rectangle ends.
+//! Server-to-client messages: framed from the wire (where each message and rectangle ends),
+//! and encoded for it.
 
 use crate::{CutText, Limits, MessageError, PixelFormat, Rect, encoding, tight};
 
@@ -282,4 +283,21 @@ impl ServerMessageReader {
             _ => Err(MessageError::UnsupportedEncoding { encoding }),
         }
     }
+}
+
+/// The header of a FramebufferUpdate holding `count` rectangles.
+pub fn framebuffer_update(count: u16) -> [u8; UPDATE_HEADER] {
+    let [h, l] = count.to_be_bytes();
+    [FRAMEBUFFER_UPDATE, 0, h, l]
+}
+
+/// The header of one rectangle of a FramebufferUpdate. Its data follows.
+pub fn rectangle(rect: Rect, encoding: i32) -> [u8; RECT_HEADER] {
+    let mut out = [0; RECT_HEADER];
+    out[0..2].copy_from_slice(&rect.x.to_be_bytes());
+    out[2..4].copy_from_slice(&rect.y.to_be_bytes());
+    out[4..6].copy_from_slice(&rect.width.to_be_bytes());
+    out[6..8].copy_from_slice(&rect.height.to_be_bytes());
+    out[8..12].copy_from_slice(&encoding.to_be_bytes());
+    out
 }

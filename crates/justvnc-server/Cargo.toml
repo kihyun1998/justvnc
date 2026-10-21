@@ -7,3 +7,17 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+getrandom = "0.4.3"
+justvnc-proto.workspace = true
+tokio = { version = "1.54.0", default-features = false, features = ["io-util"], optional = true }
+
+[features]
+tokio = ["dep:tokio"]
+
+[dev-dependencies]
+justvnc-client = { workspace = true, features = ["tokio"] }
+tokio = { version = "1.54.0", features = ["macros", "rt", "net", "time"] }
+
+[[example]]
+name = "pattern"
+required-features = ["tokio"]

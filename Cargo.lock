@@ -438,6 +438,12 @@ version = "0.0.0"
 [[package]]
 name = "justvnc-server"
 version = "0.0.0"
+dependencies = [
+ "getrandom",
+ "justvnc-client",
+ "justvnc-proto",
+ "tokio",
+]
 
 [[package]]
 name = "lazy_static"

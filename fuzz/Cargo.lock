@@ -148,6 +148,7 @@ version = "0.0.0"
 dependencies = [
  "justvnc-client",
  "justvnc-proto",
+ "justvnc-server",
  "libfuzzer-sys",
 ]
 
@@ -156,6 +157,14 @@ name = "justvnc-proto"
 version = "0.0.0"
 dependencies = [
  "des",
+]
+
+[[package]]
+name = "justvnc-server"
+version = "0.0.0"
+dependencies = [
+ "getrandom",
+ "justvnc-proto",
 ]
 
 [[package]]
