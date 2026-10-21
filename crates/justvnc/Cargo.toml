@@ -5,5 +5,25 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "../../README.md"
 
 [dependencies]
+justvnc-proto.workspace = true
+justvnc-decode = { workspace = true, optional = true }
+justvnc-client = { workspace = true, optional = true }
+justvnc-server = { workspace = true, optional = true }
+justvnc-proxy = { workspace = true, optional = true }
+
+[features]
+default = []
+client = ["dep:justvnc-client"]
+server = ["dep:justvnc-server"]
+proxy = ["dep:justvnc-proxy"]
+decode = ["dep:justvnc-decode"]
+# The tokio drivers of whichever roles are on.
+tokio = ["justvnc-client?/tokio", "justvnc-server?/tokio", "justvnc-proxy?/tokio"]
+# Tight JPEG, for the client role and the decoder.
+jpeg = ["justvnc-client?/jpeg", "justvnc-decode?/jpeg"]
+
+[dev-dependencies]
+tokio = { version = "1.54.0", features = ["macros", "rt", "net"] }

@@ -11,6 +11,14 @@ cargo test --workspace --all-features
 cargo build -p justvnc-proto --target wasm32-unknown-unknown
 ```
 
+The umbrella crate `justvnc` is checked with every combination of its features (CI uses `cargo-hack`):
+
+```sh
+cargo hack check -p justvnc --feature-powerset --no-dev-deps
+```
+
+Its README examples are doc tests, compiled when `client`, `server`, `proxy` and `tokio` are all on, so `cargo test --workspace --all-features` fails if they drift from the API.
+
 ## Interop tests
 
 Interop tests connect to a real VNC server and are `#[ignore]`d by default. The servers are the containers defined under `interop/` (Docker or Podman). TigerVNC runs twice, without and with a password:

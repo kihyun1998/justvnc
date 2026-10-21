@@ -399,6 +399,14 @@ dependencies = [
 [[package]]
 name = "justvnc"
 version = "0.0.0"
+dependencies = [
+ "justvnc-client",
+ "justvnc-decode",
+ "justvnc-proto",
+ "justvnc-proxy",
+ "justvnc-server",
+ "tokio",
+]
 
 [[package]]
 name = "justvnc-capture"
