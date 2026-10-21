@@ -9,9 +9,11 @@ use justvnc_proto::{
 };
 
 /// Encodings the session asks for, most preferred first.
-const ENCODINGS: [i32; 4] = [
+const ENCODINGS: [i32; 6] = [
     encoding::DESKTOP_SIZE,
+    encoding::LAST_RECT,
     encoding::COPY_RECT,
+    encoding::TIGHT,
     encoding::ZRLE,
     encoding::RAW,
 ];
@@ -212,7 +214,8 @@ impl ClientSession {
         self.transmit
             .extend_from_slice(&client_message::set_encodings(&ENCODINGS));
         self.phase = Phase::Messages {
-            reader: ServerMessageReader::new(&format, init.width, init.height, self.limits),
+            reader: ServerMessageReader::new(&format, init.width, init.height, self.limits)
+                .with_last_rect(),
             decoder: Decoder::new(),
             format,
             received: Vec::new(),

@@ -11,6 +11,7 @@ mod pixel_format;
 mod rect;
 mod server_init;
 pub mod server_message;
+pub mod tight;
 mod version;
 pub mod vnc_auth;
 

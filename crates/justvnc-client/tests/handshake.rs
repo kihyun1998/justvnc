@@ -4,11 +4,13 @@ use justvnc_client::{
 
 const TIGERVNC_NONE: &[u8] = include_bytes!("fixtures/tigervnc-3.8-none.server.bin");
 
-/// SetEncodings as RFC 6143 7.5.2 lays it out: type 2, padding, the count (4), then
-/// DesktopSize (-223), CopyRect (1), ZRLE (16) and Raw (0). The session sends it right after
-/// ServerInit. This is the one test that pins the list; others cut it out of their recordings.
+/// SetEncodings as RFC 6143 7.5.2 lays it out: type 2, padding, the count (6), then
+/// DesktopSize (-223), LastRect (-224), CopyRect (1), Tight (7), ZRLE (16) and Raw (0). The
+/// session sends it right after ServerInit. This is the one test that pins the list; others cut
+/// it out of their recordings. No JPEG quality level (-32 to -23) is offered.
 const SET_ENCODINGS: &[u8] = &[
-    2, 0, 0, 4, 0xff, 0xff, 0xff, 0x21, 0, 0, 0, 1, 0, 0, 0, 16, 0, 0, 0, 0,
+    2, 0, 0, 6, 0xff, 0xff, 0xff, 0x21, 0xff, 0xff, 0xff, 0x20, 0, 0, 0, 1, 0, 0, 0, 7, 0, 0, 0,
+    16, 0, 0, 0, 0,
 ];
 
 /// Feeds `data`, expecting any error to come from the handshake.

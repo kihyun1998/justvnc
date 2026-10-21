@@ -1,9 +1,11 @@
 //! Pixel decoding for RFB encodings.
 
+mod tight;
 mod zrle;
 
 use justvnc_proto::{PixelFormat, Rect, encoding};
 
+use crate::tight::TightDecoder;
 use crate::zrle::ZrleDecoder;
 
 /// Why a framed rectangle could not be decoded.
@@ -15,12 +17,15 @@ pub enum DecodeError {
     WrongLength { expected: usize, actual: usize },
     /// The data breaks the encoding's rules, as described.
     Corrupt(&'static str),
+    /// The data uses a part of the encoding not supported yet, as named.
+    Unsupported(&'static str),
 }
 
 /// Turns framed rectangles into pixels. Holds the state some encodings keep across a connection.
 #[derive(Debug)]
 pub struct Decoder {
     zrle: ZrleDecoder,
+    tight: TightDecoder,
 }
 
 impl Default for Decoder {
@@ -33,6 +38,7 @@ impl Decoder {
     pub fn new() -> Self {
         Self {
             zrle: ZrleDecoder::new(),
+            tight: TightDecoder::new(),
         }
     }
 
@@ -58,6 +64,7 @@ impl Decoder {
                 Ok(data.to_vec())
             }
             encoding::ZRLE => self.zrle.decode(rect, data, format),
+            encoding::TIGHT => self.tight.decode(rect, data, format),
             _ => Err(DecodeError::UnsupportedEncoding { encoding }),
         }
     }

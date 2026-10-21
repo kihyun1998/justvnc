@@ -34,6 +34,8 @@ pub enum MessageError {
     UnsupportedEncoding { encoding: i32 },
     /// A rectangle reaching outside the framebuffer.
     RectangleOutOfBounds { rect: Rect },
+    /// A message or rectangle that breaks its encoding's rules, as described.
+    Malformed(&'static str),
     /// The peer announced a value above the configured limit.
     LimitExceeded {
         field: &'static str,

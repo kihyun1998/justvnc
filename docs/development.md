@@ -62,7 +62,7 @@ python interop/record_updates.py 127.0.0.1 15930 <prefix> --exec "podman exec jv
   "run:(xlogo -geometry 40x40+8+8 &); sleep 1" full "run:xdotool search --class xlogo windowmove 50 30" incremental full
 ```
 
-By default it offers the session's encodings (DesktopSize, CopyRect, ZRLE, Raw); `--encodings 0` asks for Raw only, which gives a reference picture for a compressed recording. The ZRLE fixture was made like this, on x11vnc (`GEOMETRY` sets its screen size):
+By default it offers the session's encodings (DesktopSize, LastRect, CopyRect, Tight, ZRLE, Raw); `--encodings 0` asks for Raw only, which gives a reference picture for a compressed recording. The ZRLE fixture was made like this, on x11vnc (`GEOMETRY` sets its screen size):
 
 ```sh
 python interop/make_zrle_image.py zrle-test.xwd
@@ -74,6 +74,22 @@ python interop/record_updates.py 127.0.0.1 15930 <prefix>-reference-raw --exec "
 python interop/zrle_census.py <prefix>.server.bin
 ```
 
-`zrle_census.py` lists which ZRLE subencodings a recording holds.
+`zrle_census.py` lists which ZRLE subencodings a recording holds. The ZRLE recording offers `--encodings=-223,1,16,0`, since Tight is now ahead of ZRLE in the default list.
+
+The Tight fixture comes from Xtightvnc (`interop/tightvnc`), with the windows from `make_tight_images.py` opened beside the ZRLE image:
+
+```sh
+python interop/make_zrle_image.py .; python interop/make_tight_images.py .
+podman build -t justvnc-tightvnc interop/tightvnc
+podman run -d --rm --name jv-rec -e GEOMETRY=512x128 -p 15940:5900 justvnc-tightvnc
+for f in zrle-test tight-mono tight-indexed tight-noise; do podman cp $f.xwd jv-rec:/tmp/$f.xwd; done
+python interop/record_updates.py 127.0.0.1 15940 <prefix> --exec "podman exec jv-rec" \
+  "run:(xwud -in /tmp/zrle-test.xwd -geometry +0+0 &); sleep 1.5" full \
+  "run:(xwud -in /tmp/tight-mono.xwd -geometry +256+0 &); sleep 1" incremental \
+  "run:(xwud -in /tmp/tight-indexed.xwd -geometry +320+0 &); sleep 1" incremental \
+  "run:(xwud -in /tmp/tight-noise.xwd -geometry +384+0 &); sleep 1" incremental
+python interop/record_updates.py 127.0.0.1 15940 <prefix>-reference-raw --exec "podman exec jv-rec" --encodings 0 full
+python interop/tight_census.py <prefix>.server.bin
+```
 
 Name a fixture after the server that produced it, and note where it came from in the map note for that area.

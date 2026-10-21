@@ -1,6 +1,6 @@
 //! Framing of server-to-client messages: where each message and rectangle ends.
 
-use crate::{CutText, Limits, MessageError, PixelFormat, Rect, encoding};
+use crate::{CutText, Limits, MessageError, PixelFormat, Rect, encoding, tight};
 
 /// One framed piece of the server's message stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,10 +27,23 @@ pub enum Framed {
 #[derive(Debug)]
 pub struct ServerMessageReader {
     bytes_per_pixel: usize,
+    tpixel: usize,
     width: u16,
     height: u16,
     limits: Limits,
-    rectangles_left: Option<u16>,
+    last_rect: bool,
+    rectangles: Rectangles,
+}
+
+/// Where the reader is within a FramebufferUpdate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rectangles {
+    /// Between messages.
+    None,
+    /// This many rectangles are still to come.
+    Left(u16),
+    /// The update said 0xFFFF and ends at a LastRect; this many have come so far.
+    UntilLastRect(u32),
 }
 
 const FRAMEBUFFER_UPDATE: u8 = 0;
@@ -47,28 +60,52 @@ impl ServerMessageReader {
     pub fn new(format: &PixelFormat, width: u16, height: u16, limits: Limits) -> Self {
         Self {
             bytes_per_pixel: format.bytes_per_pixel(),
+            tpixel: tight::tpixel_len(format),
             width,
             height,
             limits,
-            rectangles_left: None,
+            last_rect: false,
+            rectangles: Rectangles::None,
         }
+    }
+
+    /// Accepts the LastRect pseudo-encoding: for a client that offered it, a LastRect rectangle
+    /// ends an update, and a count of 0xFFFF means "until the LastRect".
+    pub fn with_last_rect(mut self) -> Self {
+        self.last_rect = true;
+        self
     }
 
     /// Frames the next piece at the start of `buf`. Returns it and how many bytes of `buf` it
     /// used, or `None` when `buf` does not hold all of it yet.
     pub fn next(&mut self, buf: &[u8]) -> Result<Option<(Framed, usize)>, MessageError> {
-        match self.rectangles_left {
-            None => self.read_message(buf),
-            Some(0) => {
-                self.rectangles_left = None;
+        match self.rectangles {
+            Rectangles::None => self.read_message(buf),
+            Rectangles::Left(0) => {
+                self.rectangles = Rectangles::None;
                 Ok(Some((Framed::UpdateEnd, 0)))
             }
-            Some(left) => {
-                let framed = self.read_rectangle(buf)?;
-                if framed.is_some() {
-                    self.rectangles_left = Some(left - 1);
-                }
-                Ok(framed)
+            Rectangles::Left(_) | Rectangles::UntilLastRect(_) => {
+                let Some((framed, used)) = self.read_rectangle(buf)? else {
+                    return Ok(None);
+                };
+                self.rectangles = match (framed == Framed::UpdateEnd, self.rectangles) {
+                    (true, _) => Rectangles::None,
+                    (false, Rectangles::Left(left)) => Rectangles::Left(left - 1),
+                    (false, Rectangles::UntilLastRect(seen)) => {
+                        let max = self.limits.max_rectangles_per_update;
+                        if seen + 1 > max {
+                            return Err(MessageError::LimitExceeded {
+                                field: "number-of-rectangles",
+                                length: seen + 1,
+                                max,
+                            });
+                        }
+                        Rectangles::UntilLastRect(seen + 1)
+                    }
+                    (false, Rectangles::None) => unreachable!(),
+                };
+                Ok(Some((framed, used)))
             }
         }
     }
@@ -113,20 +150,24 @@ impl ServerMessageReader {
             return Ok(None);
         };
         let count = u16::from_be_bytes([header[2], header[3]]);
-        let max = self.limits.max_rectangles_per_update;
-        if u32::from(count) > max {
-            return Err(MessageError::LimitExceeded {
-                field: "number-of-rectangles",
-                length: u32::from(count),
-                max,
-            });
-        }
-        self.rectangles_left = Some(count);
+        self.rectangles = if count == 0xFFFF && self.last_rect {
+            Rectangles::UntilLastRect(0)
+        } else {
+            let max = self.limits.max_rectangles_per_update;
+            if u32::from(count) > max {
+                return Err(MessageError::LimitExceeded {
+                    field: "number-of-rectangles",
+                    length: u32::from(count),
+                    max,
+                });
+            }
+            Rectangles::Left(count)
+        };
         match self.next(&buf[UPDATE_HEADER..]) {
             Ok(Some((framed, used))) => Ok(Some((framed, UPDATE_HEADER + used))),
             other => {
                 // Nothing past the header was taken, so it is read again next time.
-                self.rectangles_left = None;
+                self.rectangles = Rectangles::None;
                 other
             }
         }
@@ -196,6 +237,22 @@ impl ServerMessageReader {
                     data: data.to_vec(),
                 };
                 Ok(Some((framed, start + length as usize)))
+            }
+            encoding::LAST_RECT if self.last_rect => Ok(Some((Framed::UpdateEnd, RECT_HEADER))),
+            encoding::TIGHT => {
+                if !rect.fits_in(self.width, self.height) {
+                    return Err(MessageError::RectangleOutOfBounds { rect });
+                }
+                let data = &buf[RECT_HEADER..];
+                let Some(len) = tight::frame(data, rect, self.tpixel, &self.limits)? else {
+                    return Ok(None);
+                };
+                let framed = Framed::Rectangle {
+                    rect,
+                    encoding,
+                    data: data[..len].to_vec(),
+                };
+                Ok(Some((framed, RECT_HEADER + len)))
             }
             encoding::COPY_RECT => {
                 let Some(src) = buf.get(RECT_HEADER..RECT_HEADER + COPY_RECT_DATA) else {

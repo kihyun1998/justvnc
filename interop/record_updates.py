@@ -9,9 +9,10 @@ STEP is one of:
   run:CMD      run CMD in the container with DISPLAY=:0, then wait half a second
 
 The client side is scripted: an RFB 3.8 handshake with security type None, ClientInit with the
-shared flag set, and SetEncodings: by default (DesktopSize, CopyRect, ZRLE, Raw), the list justvnc's
-client session sends, or --encodings. Raw, CopyRect, ZRLE and DesktopSize rectangles are read (ZRLE
-only by its length prefix); any other encoding stops the script.
+shared flag set, and SetEncodings: by default (DesktopSize, LastRect, CopyRect, Tight, ZRLE, Raw), the list justvnc's
+client session sends, or --encodings. Raw, CopyRect, ZRLE, Tight, DesktopSize and LastRect
+rectangles are read, ZRLE and Tight only by their sizes and lengths (Tight with 3-byte TPIXELs);
+any other encoding stops the script.
 Server bytes go to OUT_PREFIX.server.bin and client bytes to OUT_PREFIX.client.bin.
 """
 import argparse
@@ -22,13 +23,44 @@ import subprocess
 import time
 
 
+def read_compact_length(read):
+    value = 0
+    for n, shift in enumerate((0, 7, 14)):
+        byte = read(1)[0]
+        value |= (byte if n == 2 else byte & 0x7F) << shift
+        if n == 2 or not byte & 0x80:
+            return value
+
+
+def read_tight(read, w, h, tpixel):
+    """Reads one Tight rectangle's data from its sizes alone (rfbproto, Tight Encoding)."""
+    control = read(1)[0]
+    method = control >> 4
+    if method == 0x8:
+        read(tpixel)
+        return
+    if method == 0x9:
+        read(read_compact_length(read))
+        return
+    if method & 0x8:
+        raise SystemExit(f"unexpected Tight compression-control {control:#x}")
+    filter_id = read(1)[0] if method & 0x4 else 0
+    if filter_id == 1:
+        colours = read(1)[0] + 1
+        read(colours * tpixel)
+        size = (w + 7) // 8 * h if colours == 2 else w * h
+    else:
+        size = w * h * tpixel
+    read(size if size < 12 else read_compact_length(read))
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("host")
     p.add_argument("port", type=int)
     p.add_argument("out_prefix")
     p.add_argument("--exec", required=True, dest="exec_prefix")
-    p.add_argument("--encodings", default="-223,1,16,0")
+    p.add_argument("--encodings", default="-223,-224,1,7,16,0")
     p.add_argument("steps", nargs="+")
     a = p.parse_args()
 
@@ -76,19 +108,24 @@ def main():
         assert read(1) == b"\0", "expected a FramebufferUpdate"
         _, rects = struct.unpack(">BH", read(3))
         kinds = []
-        for _ in range(rects):
+        # 0xFFFF rectangles: as many as come before a LastRect (-224).
+        while rects == 0xFFFF or len(kinds) < rects:
             _, _, w, h, encoding = struct.unpack(">HHHHi", read(12))
+            kinds.append(encoding)
             if encoding == 0:
                 read(w * h * bytes_per_pixel)
             elif encoding == 1:
                 read(4)
             elif encoding == 16:
                 read(int.from_bytes(read(4), "big"))
+            elif encoding == 7:
+                read_tight(read, w, h, 3)
             elif encoding == -223:
                 width, height = w, h
+            elif encoding == -224:
+                break
             else:
                 raise SystemExit(f"unexpected encoding {encoding}")
-            kinds.append(encoding)
         print(f"{step}: {rects} rectangles, encodings {kinds}")
 
     sock.close()
