@@ -1,3 +1,5 @@
+mod common;
+
 use justvnc_client::{
     ClientConfig, ClientSession, Error, Event, Framebuffer, MessageError, PixelFormat, Rect,
     Rectangle,
@@ -48,7 +50,11 @@ fn rebuilds_a_moved_window_from_copyrect_as_a_full_update_shows_it() {
     let transmit: Vec<u8> = std::iter::from_fn(|| session.poll_transmit())
         .flatten()
         .collect();
-    assert_eq!(transmit, CLIENT);
+    // Version, security type and ClientInit take 14 bytes; SetEncodings follows.
+    assert_eq!(
+        common::without_set_encodings(&transmit, 14),
+        common::without_set_encodings(CLIENT, 14)
+    );
     let (format, updates) = updates(&mut session);
     assert_eq!(updates.len(), 3);
     let copies = updates[1]

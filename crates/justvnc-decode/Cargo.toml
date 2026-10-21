@@ -7,4 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+flate2 = "1.1"
 justvnc-proto.workspace = true
+
+[dev-dependencies]
+flate2 = "1.1"

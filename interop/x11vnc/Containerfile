@@ -1,8 +1,9 @@
 FROM ubuntu:24.04
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends x11vnc xvfb \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends x11vnc xvfb x11-apps \
  && rm -rf /var/lib/apt/lists/*
 COPY start.sh /start.sh
 EXPOSE 5900
 # RFB_VERSION: the version x11vnc advertises (default 3.8). VNC_PASSWORD: VncAuth when set, None otherwise.
+# GEOMETRY: screen size (default 800x600). x11-apps provides xwud, to show recorded test images.
 CMD ["sh", "/start.sh"]

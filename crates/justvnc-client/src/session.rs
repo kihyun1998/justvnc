@@ -9,7 +9,12 @@ use justvnc_proto::{
 };
 
 /// Encodings the session asks for, most preferred first.
-const ENCODINGS: [i32; 3] = [encoding::DESKTOP_SIZE, encoding::COPY_RECT, encoding::RAW];
+const ENCODINGS: [i32; 4] = [
+    encoding::DESKTOP_SIZE,
+    encoding::COPY_RECT,
+    encoding::ZRLE,
+    encoding::RAW,
+];
 
 /// How a client session behaves.
 #[derive(Debug, Clone)]

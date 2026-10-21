@@ -15,6 +15,8 @@ pub struct Limits {
     pub max_rectangles_per_update: u32,
     /// Longest clipboard text accepted in ServerCutText, in bytes.
     pub max_cut_text_length: u32,
+    /// Longest compressed data accepted for one rectangle (ZRLE), in bytes.
+    pub max_compressed_length: u32,
 }
 
 impl Default for Limits {
@@ -26,6 +28,7 @@ impl Default for Limits {
             max_framebuffer_height: 8192,
             max_rectangles_per_update: 16384,
             max_cut_text_length: 1024 * 1024,
+            max_compressed_length: 64 * 1024 * 1024,
         }
     }
 }

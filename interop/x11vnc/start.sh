@@ -1,5 +1,6 @@
 set -e
-Xvfb :0 -screen 0 800x600x24 &
+# GEOMETRY: screen size (default 800x600).
+Xvfb :0 -screen 0 "${GEOMETRY:-800x600}x24" &
 sleep 1
 if [ -n "$VNC_PASSWORD" ]; then
   set -- -passwd "$VNC_PASSWORD"

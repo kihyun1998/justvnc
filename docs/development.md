@@ -62,4 +62,18 @@ python interop/record_updates.py 127.0.0.1 15930 <prefix> --exec "podman exec jv
   "run:(xlogo -geometry 40x40+8+8 &); sleep 1" full "run:xdotool search --class xlogo windowmove 50 30" incremental full
 ```
 
+By default it offers the session's encodings (DesktopSize, CopyRect, ZRLE, Raw); `--encodings 0` asks for Raw only, which gives a reference picture for a compressed recording. The ZRLE fixture was made like this, on x11vnc (`GEOMETRY` sets its screen size):
+
+```sh
+python interop/make_zrle_image.py zrle-test.xwd
+podman run -d --rm --name jv-rec -e GEOMETRY=256x128 -p 15930:5900 justvnc-x11vnc
+podman cp zrle-test.xwd jv-rec:/tmp/zrle-test.xwd
+python interop/record_updates.py 127.0.0.1 15930 <prefix> --exec "podman exec jv-rec" \
+  "run:(xwud -in /tmp/zrle-test.xwd -geometry +0+0 &); sleep 1.5" full full
+python interop/record_updates.py 127.0.0.1 15930 <prefix>-reference-raw --exec "podman exec jv-rec" --encodings 0 full
+python interop/zrle_census.py <prefix>.server.bin
+```
+
+`zrle_census.py` lists which ZRLE subencodings a recording holds.
+
 Name a fixture after the server that produced it, and note where it came from in the map note for that area.

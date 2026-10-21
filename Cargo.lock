@@ -419,6 +419,7 @@ dependencies = [
 name = "justvnc-decode"
 version = "0.0.0"
 dependencies = [
+ "flate2",
  "justvnc-proto",
 ]
 

@@ -1,3 +1,5 @@
+mod common;
+
 use justvnc_client::{
     ClientConfig, ClientSession, Error, Event, Framebuffer, Limits, MessageError, PixelFormat, Rect,
 };
@@ -44,7 +46,11 @@ fn rebuilds_tigervncs_screen_from_a_raw_update() {
         },
     );
 
-    assert_eq!(drain_transmit(&mut session), RETRO_CLIENT);
+    // Version, security type and ClientInit take 14 bytes; SetEncodings follows.
+    assert_eq!(
+        common::without_set_encodings(&drain_transmit(&mut session), 14),
+        common::without_set_encodings(RETRO_CLIENT, 14)
+    );
     let events = drain_events(&mut session);
     let Some(Event::Connected(desktop)) = events.first() else {
         panic!("expected Connected first, got {events:?}");
@@ -309,8 +315,11 @@ fn asks_for_the_configured_pixel_format_before_the_encodings() {
     let (handshake, rest) = transmit.split_at(RETRO_CLIENT_HANDSHAKE_LEN);
     assert_eq!(handshake, &RETRO_CLIENT[..RETRO_CLIENT_HANDSHAKE_LEN]);
     assert_eq!(rest[..20], set_pixel_format);
-    // Then SetEncodings as the recording has it: 4 bytes of header and three encodings.
-    assert_eq!(rest[20..], RETRO_CLIENT[RETRO_CLIENT_HANDSHAKE_LEN..][..16]);
+    // Then SetEncodings (message type 2) and nothing else; handshake.rs pins its encodings.
+    let set_encodings = &rest[20..];
+    assert_eq!(set_encodings[0], 2);
+    let count = usize::from(u16::from_be_bytes([set_encodings[2], set_encodings[3]]));
+    assert_eq!(set_encodings.len(), 4 + 4 * count);
     assert_eq!(session.pixel_format(), Some(rgb565));
 }
 

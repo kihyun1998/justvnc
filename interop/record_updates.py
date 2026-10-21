@@ -1,6 +1,7 @@
 """Records framebuffer updates from a real VNC server while X commands run inside its container.
 
-Usage: python record_updates.py HOST PORT OUT_PREFIX --exec "podman exec NAME" STEP [STEP ...]
+Usage: python record_updates.py HOST PORT OUT_PREFIX --exec "podman exec NAME"
+           [--encodings N,N,...] STEP [STEP ...]
 
 STEP is one of:
   full         send a full FramebufferUpdateRequest for the whole screen and read the update
@@ -8,8 +9,9 @@ STEP is one of:
   run:CMD      run CMD in the container with DISPLAY=:0, then wait half a second
 
 The client side is scripted: an RFB 3.8 handshake with security type None, ClientInit with the
-shared flag set, and SetEncodings (DesktopSize, CopyRect, Raw), the list justvnc's client session
-sends. Raw, CopyRect and DesktopSize rectangles are read; any other encoding stops the script.
+shared flag set, and SetEncodings: by default (DesktopSize, CopyRect, ZRLE, Raw), the list justvnc's
+client session sends, or --encodings. Raw, CopyRect, ZRLE and DesktopSize rectangles are read (ZRLE
+only by its length prefix); any other encoding stops the script.
 Server bytes go to OUT_PREFIX.server.bin and client bytes to OUT_PREFIX.client.bin.
 """
 import argparse
@@ -26,6 +28,7 @@ def main():
     p.add_argument("port", type=int)
     p.add_argument("out_prefix")
     p.add_argument("--exec", required=True, dest="exec_prefix")
+    p.add_argument("--encodings", default="-223,1,16,0")
     p.add_argument("steps", nargs="+")
     a = p.parse_args()
 
@@ -56,7 +59,8 @@ def main():
     read(int.from_bytes(header[20:24], "big"))
     width, height = struct.unpack(">HH", header[:4])
     bytes_per_pixel = header[4] // 8
-    send(struct.pack(">BBHiii", 2, 0, 3, -223, 1, 0))
+    encodings = [int(e) for e in a.encodings.split(",")]
+    send(struct.pack(f">BBH{len(encodings)}i", 2, 0, len(encodings), *encodings))
 
     for step in a.steps:
         if step.startswith("run:"):
@@ -78,6 +82,8 @@ def main():
                 read(w * h * bytes_per_pixel)
             elif encoding == 1:
                 read(4)
+            elif encoding == 16:
+                read(int.from_bytes(read(4), "big"))
             elif encoding == -223:
                 width, height = w, h
             else:

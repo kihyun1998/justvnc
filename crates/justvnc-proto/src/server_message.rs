@@ -170,6 +170,33 @@ impl ServerMessageReader {
                 };
                 Ok(Some((framed, RECT_HEADER + len)))
             }
+            encoding::ZRLE => {
+                if !rect.fits_in(self.width, self.height) {
+                    return Err(MessageError::RectangleOutOfBounds { rect });
+                }
+                let Some(length) = buf.get(RECT_HEADER..RECT_HEADER + 4) else {
+                    return Ok(None);
+                };
+                let length = u32::from_be_bytes([length[0], length[1], length[2], length[3]]);
+                let max = self.limits.max_compressed_length;
+                if length > max {
+                    return Err(MessageError::LimitExceeded {
+                        field: "zrle-length",
+                        length,
+                        max,
+                    });
+                }
+                let start = RECT_HEADER + 4;
+                let Some(data) = buf.get(start..start + length as usize) else {
+                    return Ok(None);
+                };
+                let framed = Framed::Rectangle {
+                    rect,
+                    encoding,
+                    data: data.to_vec(),
+                };
+                Ok(Some((framed, start + length as usize)))
+            }
             encoding::COPY_RECT => {
                 let Some(src) = buf.get(RECT_HEADER..RECT_HEADER + COPY_RECT_DATA) else {
                     return Ok(None);
