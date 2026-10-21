@@ -135,7 +135,7 @@ impl ServerMessageReader {
                 max,
             });
         }
-        let end = CUT_TEXT_HEADER + length as usize;
+        let end = CUT_TEXT_HEADER.saturating_add(length as usize);
         let Some(text) = buf.get(CUT_TEXT_HEADER..end) else {
             return Ok(None);
         };
@@ -200,8 +200,11 @@ impl ServerMessageReader {
                 if !rect.fits_in(self.width, self.height) {
                     return Err(MessageError::RectangleOutOfBounds { rect });
                 }
-                let len = usize::from(rect.width) * usize::from(rect.height) * self.bytes_per_pixel;
-                let Some(data) = buf.get(RECT_HEADER..RECT_HEADER + len) else {
+                let end = usize::from(rect.width)
+                    .saturating_mul(usize::from(rect.height))
+                    .saturating_mul(self.bytes_per_pixel)
+                    .saturating_add(RECT_HEADER);
+                let Some(data) = buf.get(RECT_HEADER..end) else {
                     return Ok(None);
                 };
                 let framed = Framed::Rectangle {
@@ -209,7 +212,7 @@ impl ServerMessageReader {
                     encoding,
                     data: data.to_vec(),
                 };
-                Ok(Some((framed, RECT_HEADER + len)))
+                Ok(Some((framed, end)))
             }
             encoding::ZRLE => {
                 if !rect.fits_in(self.width, self.height) {
@@ -228,7 +231,8 @@ impl ServerMessageReader {
                     });
                 }
                 let start = RECT_HEADER + 4;
-                let Some(data) = buf.get(start..start + length as usize) else {
+                let end = start.saturating_add(length as usize);
+                let Some(data) = buf.get(start..end) else {
                     return Ok(None);
                 };
                 let framed = Framed::Rectangle {
@@ -236,7 +240,7 @@ impl ServerMessageReader {
                     encoding,
                     data: data.to_vec(),
                 };
-                Ok(Some((framed, start + length as usize)))
+                Ok(Some((framed, end)))
             }
             encoding::LAST_RECT if self.last_rect => Ok(Some((Framed::UpdateEnd, RECT_HEADER))),
             encoding::TIGHT => {

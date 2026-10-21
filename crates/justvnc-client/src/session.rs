@@ -226,7 +226,7 @@ impl ClientSession {
             .check_framebuffer(init.width, init.height)
             .map_err(Error::Message)?;
         let format = self.requested_format.unwrap_or(init.pixel_format);
-        if !format.true_colour || !matches!(format.bits_per_pixel, 8 | 16 | 32) {
+        if !format.true_colour || !format.is_valid() {
             return Err(Error::UnsupportedPixelFormat(format));
         }
         if let Some(requested) = &self.requested_format {

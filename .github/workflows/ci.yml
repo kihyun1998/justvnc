@@ -32,6 +32,43 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p justvnc-proto --target wasm32-unknown-unknown
 
+  i686:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y gcc-multilib
+      - run: cargo test -p justvnc-proto --target i686-unknown-linux-gnu
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - run: cargo fmt --manifest-path fuzz/Cargo.toml --check
+      - run: cargo clippy --manifest-path fuzz/Cargo.toml -- -D warnings
+      - run: python3 fuzz/seed_corpus.py
+      - name: Fuzz each target for a minute
+        working-directory: fuzz
+        run: |
+          for target in $(cargo fuzz list); do
+            cargo fuzz run "$target" "corpus/$target" -- -max_total_time=60 -timeout=10
+          done
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
+
   interop:
     runs-on: ubuntu-latest
     steps:

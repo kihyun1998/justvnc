@@ -1,0 +1,37 @@
+[package]
+name = "justvnc-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+justvnc-proto = { path = "../crates/justvnc-proto" }
+justvnc-client = { path = "../crates/justvnc-client", features = ["jpeg"] }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "server_messages"
+path = "fuzz_targets/server_messages.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "client_handshake"
+path = "fuzz_targets/client_handshake.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "client_session"
+path = "fuzz_targets/client_session.rs"
+test = false
+doc = false
+bench = false

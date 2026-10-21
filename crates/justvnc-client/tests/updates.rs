@@ -344,6 +344,22 @@ fn refuses_a_colour_mapped_pixel_format() {
     assert_eq!(later, expected);
 }
 
+/// Found by the `client_session` fuzz target: ServerInit declares 32 bpp with blue shifted 38
+/// bits, then one Tight fill rectangle follows.
+const BLUE_SHIFT_38: &[u8] = include_bytes!("fixtures/fuzz-tight-blue-shift-38.server.bin");
+
+#[test]
+fn refuses_a_server_pixel_format_whose_colours_do_not_fit_in_the_pixel() {
+    let mut session = ClientSession::new(ClientConfig::default());
+
+    let result = session.receive(BLUE_SHIFT_38);
+
+    let Err(Error::UnsupportedPixelFormat(format)) = result else {
+        panic!("{result:?}");
+    };
+    assert_eq!(format.blue_shift, 38);
+}
+
 #[test]
 fn applies_an_empty_raw_rectangle_without_changing_anything() {
     let mut session = connected(ClientConfig::default());

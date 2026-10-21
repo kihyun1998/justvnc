@@ -203,7 +203,8 @@ impl ClientHandshake {
         };
         let name_length = u32::from_be_bytes([header[20], header[21], header[22], header[23]]);
         check_limit("name-length", name_length, self.limits.max_name_length)?;
-        let Some(name) = self.received.get(HEADER..HEADER + name_length as usize) else {
+        let end = HEADER.saturating_add(name_length as usize);
+        let Some(name) = self.received.get(HEADER..end) else {
             return Ok(None);
         };
         let init = ServerInit {
@@ -212,7 +213,7 @@ impl ClientHandshake {
             pixel_format: PixelFormat::from_bytes(header[4..20].try_into().unwrap()),
             name: DesktopName::new(name.to_vec()),
         };
-        self.received.drain(..HEADER + name_length as usize);
+        self.received.drain(..end);
         self.state = State::Done;
         Ok(Some(init))
     }
@@ -230,7 +231,7 @@ impl ClientHandshake {
         let start = offset + 4;
         Ok(self
             .received
-            .get(start..start + length as usize)
+            .get(start..start.saturating_add(length as usize))
             .map(|b| String::from_utf8_lossy(b).into_owned()))
     }
 }

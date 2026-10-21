@@ -177,3 +177,14 @@ fn reads_palette_indices_up_to_127() {
 
     assert_eq!(pixels, [99, 99, 99, 0, 70, 70, 70, 0, 70, 70, 70, 0]);
 }
+
+#[test]
+fn refuses_a_pixel_format_whose_colours_do_not_fit_in_the_pixel() {
+    // A solid tile: subencoding 1, then one CPIXEL.
+    let result = decode(&rgb(false, 24, [16, 8, 70]), 1, 1, &[1, 1, 2, 3]);
+
+    assert_eq!(
+        result,
+        Err(DecodeError::Unsupported("pixel format is not valid"))
+    );
+}

@@ -22,6 +22,7 @@ Right after ServerInit, before the host can ask for anything: SetPixelFormat, wh
 - **DesktopSize** (-223) is a rectangle with no data. Its x and y are ignored; width and height are the new size. The RFC asks clients to keep the top-left part of the old framebuffer, which `Framebuffer` does.
 - **Other server messages** can arrive between updates. Bell and ServerCutText are framed and reported (see `input-and-clipboard.md`). SetColourMapEntries (1), and any other type, stops framing with `UnsupportedMessage` instead of being skipped: each message has its own length, and skipping a byte count the reader does not know desynchronises everything after it.
 - **Colour-mapped formats** are refused (`UnsupportedPixelFormat`), whether configured or the server's own. They need SetColourMapEntries, which is not handled.
+- **Invalid formats** are refused the same way. `PixelFormat::is_valid` holds rfbproto's rules: 8, 16 or 32 bits per pixel, depth no larger, each max one less than a power of two, and each colour inside the pixel once shifted. The last is not spelled out in rfbproto; it follows from "shift right by red-shift, AND with red-max". A server's ServerInit is untrusted, and the `client_session` fuzz target found that a blue-shift of 38 in a 32-bit pixel made Tight's TPIXEL conversion panic on shift overflow (`fuzz-tight-blue-shift-38.server.bin`). `Decoder::decode` checks the same rule, so a caller who uses the decoder without the session gets `Unsupported` instead of a panic. Depth is not checked against the sum of the max bits, since rfbproto notes servers that send depth equal to bits-per-pixel.
 
 ## Untrusted sizes
 
@@ -32,6 +33,7 @@ Everything is checked before the bytes it announces are waited for:
 - every Raw and ZRLE rectangle, and both sides of every CopyRect, lies inside the current framebuffer.
 - the ZRLE length, against `max_compressed_length` (default 64 MiB, vnc-rs's figure).
 - what one ZRLE rectangle inflates to. Inflating stops with `Corrupt` past the most a valid rectangle can need: every tile a 127-colour palette, and then every pixel either a raw CPIXEL or a one-pixel run (one CPIXEL and one length byte). A few compressed bytes can otherwise inflate to gigabytes. A run that goes past its tile, or a palette index outside the palette, is also `Corrupt`. Without this check, a single 65535x65535 rectangle would make the reader wait for 17 GB.
+- on a 32-bit target, a limit raised near `u32::MAX` or a 65535x65535 Raw rectangle has an end past `usize::MAX`. Those ends are computed with saturating arithmetic, as in the handshake (`rfb-handshake.md`), so the reader waits instead of panicking or, without overflow checks, framing a wrapped length.
 
 ## After an error
 

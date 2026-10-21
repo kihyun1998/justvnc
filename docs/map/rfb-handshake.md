@@ -19,6 +19,8 @@ How a session gets from TCP connect to ServerInit. Client side: `justvnc_proto::
 
 `name-length` and `reason-length` are U32s from the peer. Both are checked against `Limits` before the bytes they announce are waited for or allocated, so a peer announcing 4 GB ends the session with `LimitExceeded` instead of growing the receive buffer.
 
+A caller may raise a limit as far as `u32::MAX`. On a 32-bit target (wasm32) the end of such a length does not fit in a `usize`, so offsets are added with `saturating_add`: the end becomes `usize::MAX`, which no buffer reaches, and the handshake waits as it would for any length not yet received. Plain `+` panics there with overflow checks on and wraps without them (`tests/raised_limits.rs`, run on i686 in CI).
+
 ## Fixtures
 
 Recorded with `interop/record_handshake.py` and named `<server>-<version>-<case>`. A recording is a pair: `.server.bin` is what the server sent, `.client.bin` what the scripted client sent back. The script computes VNC authentication with pycryptodome's DES, not justvnc's, and the server's SecurityResult in the same recording shows whether that response was accepted. That makes the client bytes an independent expected value.

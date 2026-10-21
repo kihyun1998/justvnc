@@ -56,6 +56,27 @@ impl PixelFormat {
         ]
     }
 
+    /// Whether the format is one rfbproto allows: 8, 16 or 32 bits per pixel, a depth no larger,
+    /// and for true colour, each max one less than a power of two and each colour inside the
+    /// pixel once shifted.
+    pub fn is_valid(&self) -> bool {
+        if !matches!(self.bits_per_pixel, 8 | 16 | 32) || self.depth > self.bits_per_pixel {
+            return false;
+        }
+        !self.true_colour
+            || [
+                (self.red_max, self.red_shift),
+                (self.green_max, self.green_shift),
+                (self.blue_max, self.blue_shift),
+            ]
+            .iter()
+            .all(|&(max, shift)| {
+                let bits = u16::BITS - max.leading_zeros();
+                u32::from(max) + 1 == 1 << bits
+                    && u32::from(shift) + bits <= u32::from(self.bits_per_pixel)
+            })
+    }
+
     /// Bytes one pixel takes on the wire.
     pub fn bytes_per_pixel(&self) -> usize {
         usize::from(self.bits_per_pixel / 8)

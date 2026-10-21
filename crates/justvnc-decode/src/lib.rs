@@ -51,6 +51,9 @@ impl Decoder {
         data: &[u8],
         format: &PixelFormat,
     ) -> Result<Vec<u8>, DecodeError> {
+        if !format.is_valid() {
+            return Err(DecodeError::Unsupported("pixel format is not valid"));
+        }
         match encoding {
             encoding::RAW => {
                 let expected =

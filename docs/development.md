@@ -31,6 +31,20 @@ The container takes `GEOMETRY` (default `1024x768`) and `XVNC_ARGS`; `-retro` dr
 
 Ports 15900/15901 avoid a VNC server that may already be listening on 5900 locally (see `docs/map/rfb-handshake.md`). CI uses 5900/5901.
 
+## Fuzzing
+
+The fuzz targets live in `fuzz/`, a crate outside the workspace that builds on nightly with `cargo-fuzz`. CI runs each for a minute with the recorded fixtures as seeds:
+
+```sh
+cargo install cargo-fuzz --version 0.13.2 --locked
+python3 fuzz/seed_corpus.py
+cd fuzz && cargo +nightly fuzz run server_messages corpus/server_messages -- -max_total_time=60 -timeout=10
+```
+
+The targets are `server_messages` (framing after ServerInit), `client_handshake` and `client_session` (the whole client, decoding included). On Windows, run them in a Linux container; see `docs/map/fuzzing.md`. A crash is fixed and its input kept as an ordinary test in the crate it was found in.
+
+`crates/justvnc-proto/tests/raised_limits.rs` only fails on a 32-bit target. CI runs it on i686: `cargo test -p justvnc-proto --target i686-unknown-linux-gnu`.
+
 ## Example Viewer
 
 ```sh

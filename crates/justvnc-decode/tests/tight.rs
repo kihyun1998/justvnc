@@ -329,3 +329,18 @@ fn refuses_jpeg_below_16_bits_per_pixel() {
         ))
     );
 }
+
+#[test]
+fn refuses_a_pixel_format_whose_colours_do_not_fit_in_the_pixel() {
+    let format = PixelFormat {
+        blue_shift: 38,
+        ..xrgb(false)
+    };
+
+    let result = decode(&mut Decoder::new(), rect(1, 1), &[0x80, 1, 2, 3], &format);
+
+    assert_eq!(
+        result,
+        Err(DecodeError::Unsupported("pixel format is not valid"))
+    );
+}
