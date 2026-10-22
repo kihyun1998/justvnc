@@ -94,6 +94,12 @@ JUSTVNC_RECORD=recordings cargo run -p justvnc-proxy --features tokio --example 
 cargo run -p justvnc-record --features replay --example replay -- recordings/<file>.jvrec
 ```
 
+The `frames` example exports a Recording as PNG keyframes and changed regions with an `index.csv` (keyframe interval in seconds, default 60):
+
+```sh
+cargo run -p justvnc-record --features frames --example frames -- recordings/<file>.jvrec frames-out [SECONDS]
+```
+
 A Recording holds what the user typed, passwords included; keep it like one.
 
 ## Recording fixtures

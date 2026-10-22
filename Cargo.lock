@@ -462,6 +462,7 @@ dependencies = [
  "justvnc-proto",
  "justvnc-proxy",
  "minifb",
+ "png",
 ]
 
 [[package]]

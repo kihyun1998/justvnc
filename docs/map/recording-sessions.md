@@ -33,7 +33,20 @@ Each entry must hold exactly one message; one that holds less or more stops repl
 
 Replay needs the decoders, so it is behind `replay`, which the umbrella crate turns on with `client`. A Proxy that only records carries no decoder: `cargo tree` for `justvnc` with `proxy`, `record` and `tokio` shows no `justvnc-decode`, flate2 or zune-jpeg.
 
+## Frames
+
+With the `frames` feature, `Frames` turns a Recording into images and `export_frames` writes them as PNG files with an `index.csv` (#35). **Maintainer's calls (#35):** keyframes of the whole screen plus the regions each update changed, for a pipeline that already takes captured images as files; keyframes at a configurable interval, default 60 s; one index file; PNG; a library function and an example.
+
+- A frame is taken at the end of each update (`UpdateComplete`), at that entry's time. The changed regions come from the replayed events (each `Rectangle` and `Copy`), so nothing compares pixels; each region is cropped from the screen as the update left it, so overlapping regions of one update agree.
+- A keyframe is taken instead of regions at the first update, after a desktop size change (the receiver cannot draw regions onto a picture of another size), after a pixel format change (the screen starts again, black, in the new format, as the replay example does), and at the first update that changes something once the interval has passed. An update that changes nothing takes nothing, so a still screen writes no images however long it lasts.
+- A Recording that ends inside an update gives what that update changed so far.
+- Colours become 8-bit red, green and blue, each scaled `(c * 255 + (max + 1) / 2) / max`, the rounding the server role measured from TigerVNC (`serving-a-viewer.md`).
+
+`index.csv` starts with the header `time_us,kind,x,y,width,height,file`, then one line per image in order: microseconds since the session started, `keyframe` or `region`, the rectangle, and the PNG's file name (numbered `000001.png` on). Drawing the images in that order, a keyframe replacing the screen and a region drawn at its x and y, rebuilds the replayed screen at every update; `tests/frames.rs` checks that for the three TigerVNC recordings and for big-endian 32-bit, reading the index and the PNGs back.
+
+`png` is used only under `frames`, which needs `client`: a recording Proxy carries no image encoder.
+
 ## Checked
 
 - Replaying a Proxy's Recording of TigerVNC's Raw/CopyRect, Tight JPEG with LastRect, and RGB565 recordings gives the picture the client role decodes from the same bytes (`tests/replay.rs`).
-- Live: the `proxy` example in front of TigerVNC 1.13.1 recorded a session from `interop/record_updates.py`. Its entries to the Viewer were byte for byte what the recorder received after ServerInit, and all 19 replayed without error.
+- Live: the `proxy` example in front of TigerVNC 1.13.1 recorded a session from `interop/record_updates.py`. Its entries to the Viewer were byte for byte what the recorder received after ServerInit, and all 19 replayed without error. The `frames` example turned it into 12 images: the first-update keyframe, then the regions of the logo's move.

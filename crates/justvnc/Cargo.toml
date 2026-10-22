@@ -23,6 +23,8 @@ proxy = ["dep:justvnc-proxy"]
 decode = ["dep:justvnc-decode"]
 # Recordings: written and read, and replayed when `client` is on too.
 record = ["dep:justvnc-record"]
+# Recordings as PNG keyframes and changed regions; includes `record` and `client`.
+frames = ["record", "client", "justvnc-record/frames"]
 # The tokio drivers of whichever roles are on.
 tokio = ["justvnc-client?/tokio", "justvnc-server?/tokio", "justvnc-proxy?/tokio"]
 # Tight JPEG, for the client role and the decoder.

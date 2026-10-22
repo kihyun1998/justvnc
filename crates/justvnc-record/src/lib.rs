@@ -1,14 +1,19 @@
 //! Recordings of RFB sessions: the framed messages that crossed after the handshake, each with
 //! its direction and a time, written and read back (ADR-0005). With the `replay` feature,
-//! [`Replay`] decodes a Recording into the client role's events.
+//! [`Replay`] decodes a Recording into the client role's events; with `frames`, [`Frames`] turns it
+//! into keyframes and changed regions, and [`export_frames`] writes them as PNG files.
 
 use std::io::{self, Read, Write};
 use std::time::Duration;
 
 use justvnc_proto::{DesktopName, Limits, PixelFormat, ServerInit};
 
+#[cfg(feature = "frames")]
+mod frames;
 #[cfg(feature = "replay")]
 mod replay;
+#[cfg(feature = "frames")]
+pub use frames::{ExportError, Frame, FrameKind, Frames, FramesConfig, export_frames};
 #[cfg(feature = "replay")]
 pub use replay::{Replay, ReplayError, Step};
 #[cfg(feature = "replay")]

@@ -46,3 +46,11 @@ fn client_with_record_turns_on_replay() {
 
     assert!(justvnc::record::Replay::new(recording).is_err());
 }
+
+#[cfg(feature = "frames")]
+#[test]
+fn frames_turns_on_the_exporter() {
+    let config = justvnc::record::FramesConfig::default();
+
+    assert_eq!(config.keyframe_interval, std::time::Duration::from_secs(60));
+}

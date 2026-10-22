@@ -15,6 +15,7 @@ Nothing is on by default. Turn on the roles you use:
 | `proxy` | `justvnc::proxy`: relay a Viewer to a Target, with a Tap that sees every message |
 | `decode` | `justvnc::decode`: pixel decoding on its own (the client role includes it) |
 | `record` | `justvnc::record`: Recordings of sessions, written and read; with `client`, replayed |
+| `frames` | Recordings exported as PNG keyframes and changed regions, with an index |
 | `tokio` | the Tokio drivers of whichever roles are on |
 | `jpeg` | Tight JPEG for the client role and the decoder, in pure Rust |
 
