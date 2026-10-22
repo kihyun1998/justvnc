@@ -161,6 +161,12 @@ python interop/record_updates.py 127.0.0.1 15960 <prefix>-rgb565 --exec "podman 
   --pixel-format=16,16,0,31,63,31,11,5,0 full
 ```
 
+To find out what a server is without recording it, `interop/probe_target.py` prints a report: the ProtocolVersion string, the security types offered, ServerInit, and the encoding the server answers each encoding offer with. It keeps no pixels and prints no challenge or response, so it is the way to look at a server whose screen or password must not reach this public repository (#32):
+
+```sh
+python interop/probe_target.py HOST PORT [--password PW]
+```
+
 To record a real Viewer, put `interop/record_relay.py` between it and a server. It writes `<prefix>.viewer.bin` and `<prefix>.server.bin` when the Viewer disconnects:
 
 ```sh
