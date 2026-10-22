@@ -13,13 +13,16 @@ justvnc-decode = { workspace = true, optional = true }
 justvnc-client = { workspace = true, optional = true }
 justvnc-server = { workspace = true, optional = true }
 justvnc-proxy = { workspace = true, optional = true }
+justvnc-record = { workspace = true, optional = true }
 
 [features]
 default = []
-client = ["dep:justvnc-client"]
+client = ["dep:justvnc-client", "justvnc-record?/replay"]
 server = ["dep:justvnc-server"]
 proxy = ["dep:justvnc-proxy"]
 decode = ["dep:justvnc-decode"]
+# Recordings: written and read, and replayed when `client` is on too.
+record = ["dep:justvnc-record"]
 # The tokio drivers of whichever roles are on.
 tokio = ["justvnc-client?/tokio", "justvnc-server?/tokio", "justvnc-proxy?/tokio"]
 # Tight JPEG, for the client role and the decoder.

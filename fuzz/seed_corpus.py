@@ -61,6 +61,38 @@ def main():
         write("proxy_session", target, bytes(data))
         write("proxy_session", f"{target}-tap", bytes([data[0] | 16]) + bytes(data[1:]))
 
+    write("record_replay", "tigervnc-copyrect", recording_from(
+        (FIXTURES / "tigervnc-3.8-none-copyrect.server.bin").read_bytes()))
+
+
+def recording_from(server):
+    """A Recording of a 3.8 None session whose updates hold Raw (32 bpp) and CopyRect only, one
+    entry per message as the Proxy writes them, after the Viewer's SetEncodings and request."""
+    init_start = 18
+    init_end = init_start + 24 + struct.unpack(">I", server[init_start + 20:init_start + 24])[0]
+    init = server[init_start:init_end]
+    width, height = struct.unpack(">HH", init[:4])
+    out = bytearray(b"JUSTVNC-RECORDING" + struct.pack(">HI", 1, len(init)) + init)
+    time = 0
+
+    def entry(direction, data):
+        nonlocal time
+        time += 1000
+        out.extend(struct.pack(">BQI", direction, time, len(data)) + data)
+
+    entry(1, struct.pack(">BBH2i", 2, 0, 2, 1, 0))
+    entry(1, struct.pack(">BBHHHH", 3, 0, 0, 0, width, height))
+    at = init_end
+    while at < len(server):
+        count = struct.unpack(">H", server[at + 2:at + 4])[0]
+        header, at = server[at:at + 4], at + 4
+        for n in range(count):
+            w, h, enc = struct.unpack(">HHi", server[at + 4:at + 12])
+            size = 12 + (w * h * 4 if enc == 0 else 4)
+            entry(0, (header if n == 0 else b"") + server[at:at + size])
+            at += size
+    return bytes(out)
+
 
 if __name__ == "__main__":
     main()

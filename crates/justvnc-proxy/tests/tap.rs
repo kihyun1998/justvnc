@@ -5,8 +5,8 @@ use justvnc_proto::server::SecurityType;
 use justvnc_proto::vnc_auth;
 use justvnc_proto::{Limits, PixelFormat};
 use justvnc_proxy::{
-    ClientMessage, CloseReason, CutText, Error, Event, Framed, ProxyConfig, ProxySession, Tap,
-    TargetMessage, UpdateVerdict, Verdict,
+    ClientMessage, CloseReason, CutText, Error, Event, Framed, ProxyConfig, ProxySession,
+    ServerInit, Tap, TargetMessage, UpdateVerdict, Verdict,
 };
 
 macro_rules! client_fixture {
@@ -40,6 +40,11 @@ struct Script {
     target: Option<TargetRule>,
     update: Option<UpdateRule>,
     updates_seen: usize,
+    /// The bytes the Proxy reported forwarding, one call each.
+    to_viewer_seen: Vec<Vec<u8>>,
+    to_target_seen: Vec<Vec<u8>>,
+    /// The desktops `relay_started` was given, and how many messages were reported before.
+    started: Vec<(ServerInit, usize)>,
 }
 
 impl Tap for Script {
@@ -60,6 +65,19 @@ impl Tap for Script {
         self.update
             .as_mut()
             .map_or(UpdateVerdict::Forward, |rule| rule(piece))
+    }
+
+    fn relay_started(&mut self, desktop: &ServerInit) {
+        let reported = self.to_viewer_seen.len() + self.to_target_seen.len();
+        self.started.push((desktop.clone(), reported));
+    }
+
+    fn forwarded_to_viewer(&mut self, bytes: &[u8]) {
+        self.to_viewer_seen.push(bytes.to_vec());
+    }
+
+    fn forwarded_to_target(&mut self, bytes: &[u8]) {
+        self.to_target_seen.push(bytes.to_vec());
     }
 }
 
@@ -447,4 +465,89 @@ fn reports_a_target_that_breaks_the_protocol_as_closed_with_the_error() {
             .count(),
         1
     );
+}
+
+/// Checks that the Tap was told exactly the bytes that crossed after the handshake, each call
+/// one whole message.
+fn assert_forwarded_matches(run: &Run) {
+    let tap = run.proxy.tap();
+    assert_eq!(tap.to_viewer_seen.concat(), run.viewer_messages());
+    assert_eq!(tap.to_target_seen.concat(), run.to_target[14..]);
+    for bytes in &tap.to_target_seen {
+        let mut reader = ClientMessageReader::new(Limits::default());
+        let framed = reader.next(bytes).unwrap();
+        assert_eq!(framed.map(|(_, used)| used), Some(bytes.len()), "{bytes:?}");
+    }
+}
+
+#[test]
+fn reports_each_forwarded_message_after_the_handshake() {
+    let run = Run::new(Script::default(), VIEWER, CLIPBOARD_AND_BELLS);
+
+    assert_forwarded_matches(&run);
+    // One ServerCutText and three Bells, one call each.
+    assert_eq!(run.proxy.tap().to_viewer_seen.len(), 4);
+    assert_eq!(run.error, None);
+}
+
+#[test]
+fn reports_only_what_crossed_when_the_tap_drops_or_replaces() {
+    let tap = Script {
+        viewer: Some(Box::new(|m| {
+            if is_cut_text(m) {
+                Verdict::Drop
+            } else {
+                Verdict::Forward
+            }
+        })),
+        target: Some(Box::new(|m| match m {
+            TargetMessage::CutText(_) => Verdict::Drop,
+            TargetMessage::Bell => {
+                Verdict::Replace(TargetMessage::CutText(CutText::from_text("ding").unwrap()))
+            }
+        })),
+        ..Script::default()
+    };
+
+    let run = Run::new(tap, VIEWER, CLIPBOARD_AND_BELLS);
+
+    assert_forwarded_matches(&run);
+    assert!(
+        run.proxy
+            .tap()
+            .to_viewer_seen
+            .iter()
+            .all(|bytes| bytes[0] == 3),
+        "only the replacement clipboard text crossed to the Viewer"
+    );
+}
+
+#[test]
+fn reports_each_piece_of_the_targets_updates() {
+    // TigerVNC's updates: Raw rectangles, CopyRects and their headers.
+    let updates = client_fixture!("tigervnc-3.8-none-copyrect.server.bin");
+
+    let run = Run::new(Script::default(), VIEWER, updates);
+
+    assert_forwarded_matches(&run);
+    let tap = run.proxy.tap();
+    assert!(tap.to_viewer_seen.iter().all(|bytes| !bytes.is_empty()));
+    assert!(tap.to_viewer_seen.len() > 3);
+}
+
+#[test]
+fn says_when_relaying_starts_before_forwarding_anything() {
+    let run = Run::new(Script::default(), VIEWER, CLIPBOARD_AND_BELLS);
+
+    let tap = run.proxy.tap();
+    let init = 12 + 2 + 4;
+    let name = u32::from_be_bytes(
+        CLIPBOARD_AND_BELLS[init + 20..init + 24]
+            .try_into()
+            .unwrap(),
+    );
+    let target_init = &CLIPBOARD_AND_BELLS[init..init + 24 + name as usize];
+    assert_eq!(tap.started.len(), 1);
+    assert_eq!(tap.started[0].0.to_bytes(), target_init);
+    assert_eq!(tap.started[0].1, 0, "nothing was reported before");
 }

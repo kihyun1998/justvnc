@@ -57,7 +57,7 @@ python3 fuzz/seed_corpus.py
 cd fuzz && cargo +nightly fuzz run server_messages corpus/server_messages -- -max_total_time=60 -timeout=10
 ```
 
-The targets are `server_messages` and `client_messages` (framing in each direction), `client_handshake`, `client_session` (the whole client, decoding included), `server_session` and `proxy_session` (both legs, interleaved). On Windows, run them in a Linux container; see `docs/map/fuzzing.md`. A crash is fixed and its input kept as an ordinary test in the crate it was found in.
+The targets are `server_messages` and `client_messages` (framing in each direction), `client_handshake`, `client_session` (the whole client, decoding included), `server_session`, `proxy_session` (both legs, interleaved) and `record_replay` (a Recording read and replayed). On Windows, run them in a Linux container; see `docs/map/fuzzing.md`. A crash is fixed and its input kept as an ordinary test in the crate it was found in.
 
 `crates/justvnc-proto/tests/raised_limits.rs` only fails on a 32-bit target. CI runs it on i686: `cargo test -p justvnc-proto --target i686-unknown-linux-gnu`.
 
@@ -84,6 +84,17 @@ JUSTVNC_TOKEN=token123 cargo run -p justvnc-proxy --features tokio --example pro
 ```
 
 Viewers connect to 127.0.0.1:15952; with `JUSTVNC_TOKEN` set they authenticate with it. `JUSTVNC_TARGET_PASSWORD` is the Target's own password. `JUSTVNC_BLOCK_CLIPBOARD=1` drops clipboard text both ways; each session's lifecycle events are printed.
+
+## Recordings
+
+The `proxy` example records each session when `JUSTVNC_RECORD` names a directory, and the `replay` example plays a Recording in a window, in real time (Space pauses):
+
+```sh
+JUSTVNC_RECORD=recordings cargo run -p justvnc-proxy --features tokio --example proxy -- 127.0.0.1:15952 127.0.0.1:15900
+cargo run -p justvnc-record --features replay --example replay -- recordings/<file>.jvrec
+```
+
+A Recording holds what the user typed, passwords included; keep it like one.
 
 ## Recording fixtures
 

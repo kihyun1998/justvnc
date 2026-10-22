@@ -404,6 +404,7 @@ dependencies = [
  "justvnc-decode",
  "justvnc-proto",
  "justvnc-proxy",
+ "justvnc-record",
  "justvnc-server",
  "tokio",
 ]
@@ -447,8 +448,20 @@ dependencies = [
  "getrandom",
  "justvnc-client",
  "justvnc-proto",
+ "justvnc-record",
  "justvnc-server",
  "tokio",
+]
+
+[[package]]
+name = "justvnc-record"
+version = "0.0.0"
+dependencies = [
+ "justvnc-client",
+ "justvnc-decode",
+ "justvnc-proto",
+ "justvnc-proxy",
+ "minifb",
 ]
 
 [[package]]

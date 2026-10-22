@@ -12,6 +12,7 @@ libfuzzer-sys = "0.4.13"
 justvnc-proto = { path = "../crates/justvnc-proto" }
 justvnc-client = { path = "../crates/justvnc-client", features = ["jpeg"] }
 justvnc-server = { path = "../crates/justvnc-server" }
+justvnc-record = { path = "../crates/justvnc-record", features = ["replay"] }
 justvnc-proxy = { path = "../crates/justvnc-proxy" }
 
 [workspace]
@@ -55,6 +56,13 @@ bench = false
 [[bin]]
 name = "proxy_session"
 path = "fuzz_targets/proxy_session.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "record_replay"
+path = "fuzz_targets/record_replay.rs"
 test = false
 doc = false
 bench = false

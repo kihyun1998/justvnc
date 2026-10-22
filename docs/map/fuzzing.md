@@ -15,6 +15,8 @@ The fuzz targets in `fuzz/` feed arbitrary bytes to what reads a peer's bytes. T
 
 - **`proxy_session`** feeds a `ProxySession` chunks the input marks as from the Viewer or from the Target, deciding authentication and the Target leg from a flags byte, and checks that an error sticks on both legs. Seeded with a recorder's handshake and a TigerVNC recording; two minutes ran about 20 000 inputs without a finding.
 
+- **`record_replay`** reads arbitrary bytes as a Recording and replays them to the end, checking that replay stops at its first error. Its seed is TigerVNC's CopyRect session written as the Proxy would, one entry per message (`seed_corpus.py`); it replays without error.
+
 ## Time bound per input
 
 CI passes `-timeout=10`. A decoder that stops making progress hangs instead of failing: with the ZRLE inflate limit removed (#7), the inflate loop never ends. The timeout turns that into a finding. That mutation, run against `client_session`, was reported as a timeout after 14 seconds.

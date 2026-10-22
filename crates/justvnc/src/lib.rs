@@ -15,5 +15,8 @@ pub use justvnc_decode as decode;
 #[cfg(feature = "proxy")]
 pub use justvnc_proxy as proxy;
 
+#[cfg(feature = "record")]
+pub use justvnc_record as record;
+
 #[cfg(feature = "server")]
 pub use justvnc_server as server;

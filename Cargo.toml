@@ -14,3 +14,4 @@ justvnc-decode = { path = "crates/justvnc-decode" }
 justvnc-client = { path = "crates/justvnc-client" }
 justvnc-server = { path = "crates/justvnc-server" }
 justvnc-proxy = { path = "crates/justvnc-proxy" }
+justvnc-record = { path = "crates/justvnc-record" }

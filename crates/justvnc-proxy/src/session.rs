@@ -390,6 +390,7 @@ impl<T: Tap> ProxySession<T> {
         let from_viewer = viewer.take_remaining();
         let from_target = target.take_remaining();
         let desktop = desktop.clone();
+        self.tap.relay_started(&desktop);
         self.phase = Phase::Relay {
             viewer_reader: ClientMessageReader::new(self.limits),
             target_reader: ServerMessageReader::new(
@@ -438,21 +439,23 @@ impl<T: Tap> ProxySession<T> {
                 };
                 let encoded =
                     || bytes.map_or_else(|| client_message::encode(&message), <[u8]>::to_vec);
-                match &message {
+                let forwarded = match &message {
                     ClientMessage::SetPixelFormat(format) => {
                         if !format.true_colour || !format.is_valid() {
                             return Err(Error::UnsupportedPixelFormat(*format));
                         }
                         target_reader.set_pixel_format(format);
-                        to_target.extend(encoded());
+                        encoded()
                     }
                     ClientMessage::SetEncodings(encodings) => {
                         let narrowed = narrow_encodings(encodings);
                         target_reader.set_last_rect(narrowed.contains(&encoding::LAST_RECT));
-                        to_target.extend(client_message::set_encodings(&narrowed));
+                        client_message::set_encodings(&narrowed)
                     }
-                    _ => to_target.extend(encoded()),
-                }
+                    _ => encoded(),
+                };
+                to_target.extend_from_slice(&forwarded);
+                tap.forwarded_to_target(&forwarded);
             }
             Ok(())
         })();
@@ -490,22 +493,25 @@ impl<T: Tap> ProxySession<T> {
                     piece => match tap.target_update(&piece) {
                         UpdateVerdict::Forward => {
                             to_viewer.extend_from_slice(bytes);
+                            if !bytes.is_empty() {
+                                tap.forwarded_to_viewer(bytes);
+                            }
                             continue;
                         }
                         UpdateVerdict::End(reason) => return Err(Error::Ended(reason)),
                     },
                 };
-                match tap.target_message(&message) {
-                    Verdict::Forward => to_viewer.extend_from_slice(bytes),
-                    Verdict::Drop => {}
-                    Verdict::Replace(TargetMessage::Bell) => {
-                        to_viewer.extend(server_message::bell());
-                    }
+                let forwarded = match tap.target_message(&message) {
+                    Verdict::Forward => bytes.to_vec(),
+                    Verdict::Drop => continue,
+                    Verdict::Replace(TargetMessage::Bell) => server_message::bell().to_vec(),
                     Verdict::Replace(TargetMessage::CutText(text)) => {
-                        to_viewer.extend(server_message::server_cut_text(&text));
+                        server_message::server_cut_text(&text)
                     }
                     Verdict::End(reason) => return Err(Error::Ended(reason)),
-                }
+                };
+                to_viewer.extend_from_slice(&forwarded);
+                tap.forwarded_to_viewer(&forwarded);
             }
             Ok(())
         })();

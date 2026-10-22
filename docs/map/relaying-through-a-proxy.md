@@ -28,6 +28,8 @@ The host's `Tap` sees each framed message after narrowing has been decided but b
 
 **Maintainer's call (#14):** the pieces of a FramebufferUpdate (rectangles, copies, DesktopSize, the update's end) are shown to `Tap::target_update`, which can only forward them or end the session. Dropping or replacing one would mean holding the whole update to rewrite its count, delaying the screen by an update's worth and keeping up to the limits in memory, and replacing a Tight or ZRLE rectangle would break the zlib stream the Viewer carries across rectangles. The maintainer was shown that option, and not showing updates to the Tap at all. Bell and ServerCutText from the Target, and every message from the Viewer, can be dropped or replaced.
 
+After its verdict the Tap is also told what crossed: `relay_started` with the ServerInit once both handshakes are done, then `forwarded_to_viewer` and `forwarded_to_target` with the bytes of each message as forwarded (narrowed, or replaced). A Recording is built from these (`recording-sessions.md`).
+
 ## Lifecycle
 
 The session reports `ViewerAuthenticated` (after `accept`, or None chosen), `TargetNeeded`, `TargetConnected { desktop }` (the Target's ServerInit) and, once and last, `Closed { reason }`. The reason is `ViewerClosed` or `TargetClosed`, which only the host can know and reports with `viewer_closed` and `target_closed`; `Refused(reason)` after `reject` or `refuse`; `Ended(reason)` from the Tap; or `Failed(error)`. The tokio driver tells the Tap each event through `Tap::event`, for audit logs, and returns `Ended::ByTap(reason)` when the Tap ends a session.

@@ -1,0 +1,25 @@
+[package]
+name = "justvnc-record"
+description = "Recordings of RFB sessions: written, read and replayed"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+justvnc-proto.workspace = true
+justvnc-client = { workspace = true, optional = true }
+justvnc-decode = { workspace = true, optional = true }
+
+[features]
+# Replaying a Recording, which decodes it.
+replay = ["dep:justvnc-client", "dep:justvnc-decode"]
+
+[dev-dependencies]
+justvnc-client = { workspace = true, features = ["jpeg"] }
+justvnc-proxy.workspace = true
+minifb = "0.29"
+
+[[example]]
+name = "replay"
+required-features = ["replay"]

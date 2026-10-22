@@ -38,3 +38,11 @@ fn jpeg_reaches_the_decoder() {
 
     assert!(matches!(result, Err(DecodeError::Corrupt(_))), "{result:?}");
 }
+
+#[cfg(all(feature = "record", feature = "client"))]
+#[test]
+fn client_with_record_turns_on_replay() {
+    let recording = b"not a recording".as_slice();
+
+    assert!(justvnc::record::Replay::new(recording).is_err());
+}

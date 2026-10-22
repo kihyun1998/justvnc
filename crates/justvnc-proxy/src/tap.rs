@@ -1,6 +1,6 @@
-use justvnc_proto::CutText;
 use justvnc_proto::client_message::ClientMessage;
 use justvnc_proto::server_message::Framed;
+use justvnc_proto::{CutText, ServerInit};
 
 use crate::Event;
 
@@ -54,6 +54,25 @@ pub trait Tap {
     fn target_update(&mut self, piece: &Framed) -> UpdateVerdict {
         let _ = piece;
         UpdateVerdict::Forward
+    }
+
+    /// Both handshakes are done and relaying starts, with `desktop` the ServerInit the Viewer
+    /// was given. Called once, before any message is forwarded.
+    fn relay_started(&mut self, desktop: &ServerInit) {
+        let _ = desktop;
+    }
+
+    /// The bytes of one message just forwarded to the Viewer, after the Tap's verdict: one
+    /// piece of a FramebufferUpdate, a Bell or a ServerCutText. Called only after the handshake,
+    /// and never with no bytes: the end of an update counted out by its rectangles has none.
+    fn forwarded_to_viewer(&mut self, bytes: &[u8]) {
+        let _ = bytes;
+    }
+
+    /// The bytes of one message just forwarded to the Target, after the Tap's verdict and the
+    /// narrowing of SetEncodings. Called only after the handshake.
+    fn forwarded_to_target(&mut self, bytes: &[u8]) {
+        let _ = bytes;
     }
 
     /// An event of the session's life, as the tokio driver reports them. A host driving

@@ -1,6 +1,6 @@
 # Choosing roles
 
-The umbrella crate `justvnc` re-exports the role crates as modules, each behind a feature: `client`, `server`, `proxy` and `decode`. `justvnc::proto` is always there. `tokio` and `jpeg` forward to the role crates that are on, as weak dependency features (`justvnc-client?/tokio`), so turning on `tokio` alone pulls in no role.
+The umbrella crate `justvnc` re-exports the role crates as modules, each behind a feature: `client`, `server`, `proxy`, `decode` and `record`. `record` with `client` also turns on replay, which decodes; `record` without it stays decoder-free for a Proxy. `justvnc::proto` is always there. `tokio` and `jpeg` forward to the role crates that are on, as weak dependency features (`justvnc-client?/tokio`), so turning on `tokio` alone pulls in no role.
 
 **Maintainer's call (#15):** no feature is on by default. A user names the roles they use, and a binary that only serves never carries the decoders, a client never carries server code, and nobody carries Tokio by accident (spec stories 1 and 2). The maintainer was shown the alternatives: `client` by default, which needs `default-features = false` for a server-only user, and everything by default, which pulls zlib and Tokio into every build.
 
