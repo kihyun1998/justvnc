@@ -39,3 +39,7 @@ _Avoid_: parsing, rendering
 **Tap**:
 The point in a Proxy where the host sees each framed message before it is forwarded, and chooses to forward, drop, replace it, or end the session.
 _Avoid_: hook, filter, interceptor
+
+**Recording**:
+The framed messages that crossed a session after its handshake, each with its direction and a time, kept to be replayed later.
+_Avoid_: capture (that is screen capture), log, video
